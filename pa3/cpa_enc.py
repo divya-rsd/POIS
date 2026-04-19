@@ -178,7 +178,7 @@ class IND_CPA_Game:
         # Then plays n_rounds of challenge
         for _ in range(n_rounds):
             ct = self.challenge(b"message zero!!!!",
-                                b"message one!!!!!!")
+                                b"message one!!!! ")
             b_guess = random.randint(0, 1)  # Random guess
             self.guess(b_guess)
         return {

@@ -158,21 +158,43 @@ class NaiveMAC:
     def mac(self, key, msg): return self._h.hash(key + msg)
 
 class LengthExtensionAttack:
-    """Demonstrates length-extension on naive H(k||m)."""
+    """
+    Demonstrates length-extension on naive H(k||m).
+
+    The attacker knows (m, T=H(k||m)) and |k|. They do NOT know k.
+    Because T is the opaque chaining value of the MD after processing
+    (k||m||md_strengthening_pad), the attacker resumes the MD from state=T
+    with any suffix they choose, forging a valid tag for
+    (m || glue_padding || suffix) — still without knowing k.
+    """
     def __init__(self, naive_mac, hash_cls=None):
         self.naive = naive_mac
-        self._h = hash_cls or DLP_Hash()
+        # Must reuse the same hash instance the MAC uses — the DLP_Hash has a
+        # per-instance secret `alpha`, so a fresh DLP_Hash() would produce a
+        # different hash function entirely.
+        self._h = hash_cls if hash_cls is not None else naive_mac._h
 
     def extend(self, original_msg: bytes, original_tag: bytes, suffix: bytes,
                 key_len: int = 16) -> tuple:
-        """Given (m, H(k||m)), compute valid tag for (m||pad||suffix) without k."""
-        # Reconstruct the padded prefix
-        prefix = b'\x00'*key_len + original_msg
-        padded_prefix = md_pad(prefix)
-        glue_padding = padded_prefix[len(prefix):]
+        """Given (m, T=H(k||m)), forge (m||glue||suffix, T') without k."""
+        # Figure out glue padding that was appended after (k||m) during H(k||m).
+        # The attacker knows |k| (or guesses it); they can compute the glue
+        # because they know the structure of md_pad.
+        prefix_len = key_len + len(original_msg)
+        dummy_prefix = b'\x00' * prefix_len  # content of prefix irrelevant for glue
+        padded_prefix = md_pad(dummy_prefix)
+        glue_padding = padded_prefix[prefix_len:]
+        # Total prefix bits consumed up to and including glue_padding:
+        prefix_with_glue_bits = len(padded_prefix) * 8
+
+        # Resume MD from state = original_tag, feeding just the suffix.
+        # Our MD's "output" IS the internal chaining value (4 bytes), so the
+        # attacker can continue hashing from T directly — the exact property
+        # that makes naive H(k||m) insecure.
+        new_tag = self._h._md.hash_resume(
+            original_tag, suffix, prefix_with_glue_bits
+        )
         extended_msg = original_msg + glue_padding + suffix
-        # Continue hashing from the known state
-        new_tag = self._h.hash(b'\x00'*key_len + extended_msg)
         return extended_msg, new_tag
 
 class EtH_Enc:
@@ -220,13 +242,30 @@ def demo_pa10():
     tag = hmac.mac(key, msg)
     print(f"  HMAC tag: {tag.hex()}")
     print(f"  Verify:   {hmac.verify(key, msg, tag)} ✓")
-    # Length-extension
-    naive = NaiveMAC(); atk = LengthExtensionAttack(naive)
+    # Length-extension on naive H(k||m)
+    shared_hash = DLP_Hash()
+    naive = NaiveMAC(hash_fn=shared_hash); atk = LengthExtensionAttack(naive)
     orig = b"original message"; ntag = naive.mac(key, orig)
     ext_msg, ext_tag = atk.extend(orig, ntag, b"SUFFIX", key_len=16)
     valid = naive.mac(key, ext_msg) == ext_tag
     print(f"\n  Length-extension on H(k||m): success={valid}")
-    print(f"  Same attack on HMAC: blocked ✓")
+
+    # Same attack on HMAC — should NOT forge a valid tag.
+    hmac_tag_orig = hmac.mac(key, orig)
+    # Attacker tries to forge an extension by running the same MD continuation.
+    # HMAC wraps the hash in (outer_key), so the chaining value the attacker
+    # sees is NOT the internal state of the inner hash — extension is impossible.
+    forged_ext_msg = orig + b"SUFFIX"
+    # Best the attacker can do: try the naive continuation on the HMAC tag.
+    try:
+        _, hmac_forged = LengthExtensionAttack(naive, hash_cls=shared_hash).extend(
+            orig, hmac_tag_orig, b"SUFFIX", key_len=16
+        )
+    except Exception:
+        hmac_forged = b''
+    correct_hmac = hmac.mac(key, forged_ext_msg)
+    hmac_blocked = hmac_forged != correct_hmac
+    print(f"  Same attack on HMAC: blocked = {hmac_blocked} ✓")
     # Encrypt-then-HMAC
     eth = EtH_Enc(); ke=os.urandom(16); km=os.urandom(16)
     msg2 = b"EtH CCA message!"

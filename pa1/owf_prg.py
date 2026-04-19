@@ -223,7 +223,8 @@ class OWF_DLP:
         y = self.evaluate(x)
         t0 = time.time()
         found = None
-        for guess in range(1, 2_000_000):
+        BUDGET = 50_000  # tiny demo budget; real DLP has 2^q attack cost
+        for guess in range(1, BUDGET):
             if mod_exp(self.g, guess, self.p) == y:
                 found = guess
                 break
@@ -237,7 +238,7 @@ class OWF_DLP:
             'brute_time_s': round(elapsed, 4),
             'conclusion': (
                 f'Inversion found at guess={found} (x was small!)' if found
-                else 'Inversion failed within 2M guesses — DLP hard for this x'
+                else f'Inversion failed within {BUDGET} guesses — DLP hard for this x'
             ),
         }
 
@@ -423,12 +424,13 @@ class OWF_from_PRG:
         Therefore p is negligible. QED.
         """
         # Use a seed chosen from a range wider than our brute-force budget
-        s = 100_000 + int.from_bytes(os.urandom(4), 'big') % 900_000
+        s = 10_000 + int.from_bytes(os.urandom(4), 'big') % 90_000
         y = self.evaluate(s)
 
+        BUDGET = 2_000  # tiny demo budget; real attacker has 2^|s| cost
         found = None
         t0 = time.time()
-        for guess in range(100_000):      # deliberately limited budget
+        for guess in range(BUDGET):      # deliberately limited budget
             if self.prg.generate(guess, self.output_bits) == y:
                 found = guess
                 break
@@ -437,7 +439,7 @@ class OWF_from_PRG:
         return {
             'seed': s,
             'output_hex': y.hex(),
-            'brute_force_range': '0 – 99999',
+            'brute_force_range': f'0 – {BUDGET - 1}',
             'brute_force_found': found,
             'time_s': round(elapsed, 4),
             'conclusion': (

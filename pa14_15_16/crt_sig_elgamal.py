@@ -34,21 +34,53 @@ def hastad_attack(ciphertexts, moduli, e=3):
 
 def demo_pa14():
     print("="*60); print("PA #14 — CRT + Håstad's Broadcast Attack"); print("="*60)
-    # Toy RSA with e=3
+    # CRT correctness sanity check
+    res = crt([2,3,2],[3,5,7])
+    print(f"  CRT(2 mod 3, 3 mod 5, 2 mod 7) = {res} (expected 23)")
+
+    # Håstad broadcast attack: same small m, e=3, three different moduli.
     rsa_list = [RSA(bits=256) for _ in range(3)]
-    # Force e=3
-    for r in rsa_list:
-        r.e = 3
-        try: r.d = _mod_inverse(3,(r.p-1)*(r.q-1))
-        except: pass
     m = 42
     cts = [_fast_pow(m, 3, r.N) for r in rsa_list]
     mods = [r.N for r in rsa_list]
     recovered = hastad_attack(cts, mods, e=3)
-    print(f"  Message: {m}, Recovered: {recovered}, Match: {m==recovered} ✓")
-    # CRT correctness
-    res = crt([2,3,2],[3,5,7])
-    print(f"  CRT(2 mod 3, 3 mod 5, 2 mod 7) = {res} (expected 23)")
+    print(f"\n  [Håstad attack — UNPADDED RSA, e=3]")
+    print(f"  Broadcast m={m} to 3 recipients")
+    print(f"  c_i = m^3 mod N_i  (shown mod 2^32): "
+          f"{[c & 0xffffffff for c in cts]}")
+    print(f"  CRT(c1, c2, c3) mod N1·N2·N3 = m^3 as integer, then cube-root.")
+    print(f"  Recovered m = {recovered}, match = {m == recovered} ✓")
+
+    # PKCS defense: each sender pads with random bytes, destroying shared m
+    print(f"\n  [Defense: PKCS#1 v1.5 padding per recipient]")
+    pkcs_list = [RSA_PKCS15(r) for r in rsa_list]
+    msg_bytes = b"A"  # short message, unique per broadcast
+    cts_padded = [p.encrypt(msg_bytes) for p in pkcs_list]
+    # With e=65537 and padding, the attack does not apply; but even forced to
+    # e=3 the padded plaintexts differ per recipient, so CRT recovers garbage.
+    #
+    # Demo with e=3 + padding: encrypt padded value under e=3 manually.
+    e = 3
+    cts_padded_e3 = []
+    for r, p in zip(rsa_list, pkcs_list):
+        # Rebuild PKCS padding and encrypt under e=3
+        k = p.k
+        ps_len = k - len(msg_bytes) - 3
+        # Build a random nonzero PS per recipient (what real PKCS does).
+        ps_bytes = bytearray()
+        while len(ps_bytes) < ps_len:
+            b = os.urandom(1)
+            if b != b'\x00':
+                ps_bytes += b
+        em = b'\x00\x02' + bytes(ps_bytes) + b'\x00' + msg_bytes
+        m_int = int.from_bytes(em, 'big')
+        cts_padded_e3.append(_fast_pow(m_int, e, r.N))
+    x = crt(cts_padded_e3, mods)
+    recovered_padded = integer_nth_root(x, 3)
+    print(f"  With padding: each recipient sees a different padded m_i")
+    print(f"  Attack result: recovered = {hex(recovered_padded)[:20]}… (garbage)")
+    print(f"  Does it equal a clean plaintext? {recovered_padded == int.from_bytes(msg_bytes, 'big')} ✗")
+    print(f"  (PKCS padding breaks the 'same m for all recipients' premise.)")
     print("✓ PA#14 complete.")
 
 # ─────────── PA #15 — Digital Signatures ───────────
