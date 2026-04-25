@@ -54,25 +54,27 @@ pois_project/
 
 ```bash
 # Run all assignments
-python run_all.py
+python3 run_all.py
 
 # Run individual PAs
-python pa1/owf_prg.py
-python pa2/prf_ggm.py
-python pa3/cpa_enc.py
-python pa4/modes.py
-python pa5/mac.py
-python pa6/cca_enc.py
-python pa7/merkle_damgard.py
-python pa8_9_10/hash_hmac.py
-python pa11/dh.py
-python pa12/rsa.py
-python pa13/primality.py
-python pa14_15_16/crt_sig_elgamal.py
-python pa17_18_19_20/mpc.py
+python3 pa1/owf_prg.py
+python3 pa2/prf_ggm.py
+python3 pa3/cpa_enc.py
+python3 pa4/modes.py
+python3 pa5/mac.py
+python3 pa6/cca_enc.py
+python3 pa7/merkle_damgard.py
+python3 pa8_9_10/hash_hmac.py
+python3 pa11/dh.py
+python3 pa12/rsa.py
+python3 pa13/primality.py
+python3 pa14_15_16/crt_sig_elgamal.py
+python3 pa17_18_19_20/mpc.py
 
-# PA#0 Web Explorer — open in browser
-open pa0_web/index.html
+# PA#0 Web Explorer (React + Vite)
+cd pa0_web
+npm install
+npm run dev
 ```
 
 **Requirements:** Python 3.8+ — No external packages needed (no-library rule enforced throughout).

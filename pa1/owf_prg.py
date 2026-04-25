@@ -11,9 +11,8 @@ Implements:
 
 import os
 import math
-import struct
-import hashlib
-from typing import List, Tuple
+import time
+from typing import List
 
 # ─────────────────────────────────────────────────────────────
 # Group parameters  (safe prime p = 2q+1, generator g of order q)
@@ -241,21 +240,31 @@ class OWF_from_PRG:
         """OWF evaluation: f(s) = G(s)."""
         return self.prg.generate(s, 64)
 
-    def demonstrate_hardness(self) -> dict:
-        """Show that recovering s from G(s) is infeasible."""
+    def demonstrate_hardness(self, max_attempts: int = 2000, output_bits: int = 16) -> dict:
+        """
+        Show that recovering s from G(s) is infeasible with a bounded demo search.
+
+        A bounded loop keeps PA#1 demos and run_all.py responsive while still
+        illustrating that inversion by naive guessing does not succeed.
+        """
         s = int.from_bytes(os.urandom(8), 'big')
-        gs = self.evaluate(s)
-        # Attempt brute-force inversion (will fail)
+        gs = self.prg.generate(s, output_bits)
         found = None
-        for guess in range(1, 100000):
-            if self.prg.generate(guess, 64) == gs:
+        t0 = time.time()
+        for guess in range(1, max_attempts + 1):
+            if self.prg.generate(guess, output_bits) == gs:
                 found = guess
                 break
+        elapsed = round(time.time() - t0, 4)
+        successful_inversion = found is not None and found == s
         return {
             'seed': s,
             'output_hex': gs.hex(),
+            'attempts': max_attempts,
+            'elapsed_s': elapsed,
             'brute_force_found': found is not None,
-            'conclusion': 'Cannot recover seed from G(s) — OWF hardness confirmed'
+            'exact_seed_recovered': successful_inversion,
+            'conclusion': 'No exact preimage found in bounded search — supports OWF intuition'
         }
 
 
