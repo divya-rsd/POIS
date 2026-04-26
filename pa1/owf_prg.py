@@ -1,34 +1,99 @@
-"""
-PA #1 — One-Way Functions & Pseudorandom Generators
+"""PA #1 - One-Way Functions & Pseudorandom Generators.
 
-Implements:
-  - OWF (DLP-based and AES-based)
-  - PRG from OWF (HILL/iterative hard-core bit construction)
-  - OWF from PRG (backward direction)
-  - Statistical test suite (frequency, runs, serial)
-  - Bidirectional reduction: OWF <=> PRG
+This module provides:
+1) Concrete OWF (DLP-based)
+2) PRG from OWF using an iterative hard-core-bit extractor
+3) OWF from PRG via f(s)=G(s) with a demo inversion experiment
+4) NIST SP 800-22 style tests: frequency, runs, serial
+5) Black-box PRG interface: seed(s), next_bits(n)
 """
 
-import os
 import math
+import os
 import time
-from typing import List
+from typing import Dict, List, Tuple
 
-# ─────────────────────────────────────────────────────────────
-# Group parameters  (safe prime p = 2q+1, generator g of order q)
-# These are small for demo; production uses ≥2048-bit primes.
-# ─────────────────────────────────────────────────────────────
-DLP_P = int("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
-# Use a smaller safe prime for demo speed:
-DLP_P = 2**127 - 1          # Mersenne prime (not safe, but fast for demo)
-DLP_Q = (DLP_P - 1) // 2    # For a true safe prime p=2q+1; approximate here
-DLP_G = 5                    # generator
+
+def _int_to_bytes(x: int, out_len: int) -> bytes:
+    return x.to_bytes(out_len, "big", signed=False)
+
+
+def _bytes_to_int(x: bytes) -> int:
+    return int.from_bytes(x, "big", signed=False)
+
+
+def _is_probable_prime(n: int) -> bool:
+    """Deterministic Miller-Rabin for 64-bit integers."""
+    if n < 2:
+        return False
+    small_primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+    for p in small_primes:
+        if n % p == 0:
+            return n == p
+
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+
+    for a in [2, 3, 5, 7, 11, 13, 17]:
+        if a >= n:
+            continue
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        composite = True
+        for _ in range(s - 1):
+            x = (x * x) % n
+            if x == n - 1:
+                composite = False
+                break
+        if composite:
+            return False
+    return True
+
+
+def _find_toy_safe_prime() -> Tuple[int, int]:
+    """Find a toy safe-prime group with order around 2^30.
+
+    Returns (p, q) where p = 2q + 1 and p, q are prime.
+    """
+    q = (1 << 30) + 3
+    if q % 2 == 0:
+        q += 1
+    while True:
+        if _is_probable_prime(q):
+            p = 2 * q + 1
+            if _is_probable_prime(p):
+                return p, q
+        q += 2
+
+
+def _generator_of_order_q(p: int, q: int) -> int:
+    """Find g in Z_p^* with exact order q (subgroup of quadratic residues)."""
+    h = 2
+    while h < p - 1:
+        g = pow(h, 2, p)
+        if g != 1 and pow(g, q, p) == 1:
+            return g
+        h += 1
+    raise ValueError("Could not find generator for subgroup")
+
+
+_TOY_P, _TOY_Q = _find_toy_safe_prime()
+_TOY_G = _generator_of_order_q(_TOY_P, _TOY_Q)
+
+# Exported defaults used by demos and downstream assignments.
+DLP_P = _TOY_P
+DLP_Q = _TOY_Q
+DLP_G = _TOY_G
 
 # ─────────────────────────────────────────────────────────────
 # Minimal AES-128 (from scratch — satisfies no-library rule)
 # ─────────────────────────────────────────────────────────────
 class AES128:
-    """Minimal AES-128 implementation (ECB mode, single block)."""
+    """Minimal AES-128 implementation (single block, ECB primitive)."""
 
     SBOX = [
         0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
@@ -116,9 +181,6 @@ class AES128:
         return bytes(state)
 
 
-# ─────────────────────────────────────────────────────────────
-# Modular exponentiation (square-and-multiply, from scratch)
-# ─────────────────────────────────────────────────────────────
 def mod_exp(base: int, exp: int, mod: int) -> int:
     """Square-and-multiply modular exponentiation."""
     result = 1
@@ -131,146 +193,155 @@ def mod_exp(base: int, exp: int, mod: int) -> int:
     return result
 
 
-# ─────────────────────────────────────────────────────────────
-# One-Way Functions
-# ─────────────────────────────────────────────────────────────
 class OWF_DLP:
-    """
-    OWF: f(x) = g^x mod p  (Discrete Log Problem)
-    Forward:  easy to compute g^x mod p
-    Backward: hard to invert — requires solving DLP
-    """
-    def __init__(self, p=DLP_P, g=DLP_G):
+    """OWF f(x)=g^x mod p in a prime-order subgroup of Z_p^*."""
+
+    def __init__(self, p: int = DLP_P, q: int = DLP_Q, g: int = DLP_G):
         self.p = p
+        self.q = q
         self.g = g
 
     def evaluate(self, x: int) -> int:
-        return mod_exp(self.g, x, self.p)
+        x_mod_q = x % self.q
+        return mod_exp(self.g, x_mod_q, self.p)
 
-    def verify_hardness(self, n_bits=64) -> dict:
-        """Demo: brute-force inversion fails for large x."""
-        import time
-        x = int.from_bytes(os.urandom(n_bits // 8), 'big')
-        y = self.evaluate(x)
-        # Try to invert by brute force (will fail quickly)
+    def verify_hardness(self, trials: int = 30, guesses_per_trial: int = 10_000) -> Dict[str, object]:
+        """Demo: random inversion attempts almost never recover the discrete log."""
+        successes = 0
         t0 = time.time()
-        found = None
-        for guess in range(1, 1000000):
-            if mod_exp(self.g, guess, self.p) == y:
-                found = guess
-                break
+        for _ in range(trials):
+            x = 1 + _bytes_to_int(os.urandom(8)) % (self.q - 1)
+            y = self.evaluate(x)
+            found = False
+            for _ in range(guesses_per_trial):
+                guess = 1 + _bytes_to_int(os.urandom(8)) % (self.q - 1)
+                if self.evaluate(guess) == y:
+                    found = True
+                    break
+            if found:
+                successes += 1
         elapsed = time.time() - t0
+        success_rate = successes / trials if trials else 0.0
         return {
-            'x': x, 'y': hex(y),
-            'brute_found': found is not None,
-            'brute_time_s': round(elapsed, 4),
-            'conclusion': 'Inversion failed (DLP hard)' if not found else 'Small x found (use larger params!)'
+            "function": "f(x)=g^x mod p",
+            "group_bits": self.q.bit_length(),
+            "trials": trials,
+            "guesses_per_trial": guesses_per_trial,
+            "successes": successes,
+            "success_rate": round(success_rate, 6),
+            "elapsed_s": round(elapsed, 4),
+            "conclusion": (
+                "Random inversion failed in almost all trials"
+                if success_rate < 0.05
+                else "Toy parameters are small; increase group size"
+            ),
         }
 
 
-class OWF_AES:
-    """
-    OWF: f(k) = AES_k(0^128) XOR k  (Davies-Meyer style)
-    """
-    def evaluate(self, k: bytes) -> bytes:
-        assert len(k) == 16
-        zero_block = b'\x00' * 16
-        ct = AES128.encrypt_block(k, zero_block)
-        return bytes(a ^ b for a, b in zip(ct, k))
-
-
-# ─────────────────────────────────────────────────────────────
-# PRG from OWF  (HILL / Håstad-Impagliazzo-Levin-Luby)
-# Hard-core predicate: b(x) = LSB of f(x)
-# G(x0) = b(x0) || b(x1) || ... where x_{i+1} = f(x_i)
-# ─────────────────────────────────────────────────────────────
 class PRG_from_OWF:
-    """
-    Forward direction: OWF → PRG
-    Uses iterative hard-core bit construction.
-    """
-    def __init__(self, owf: OWF_DLP):
-        self.owf = owf
-        self._seed_val: int = 0
+    """Forward reduction OWF -> PRG using iterative hard-core bits.
 
-    def seed(self, s: int) -> None:
-        self._seed_val = s
+    For n-bit seed x0 and user-selected ell >= 1:
+        xi+1 = f(xi)
+        G(x0) = b(x0) || b(x1) || ... || b(x_{n+ell-1})
+    """
+
+    def __init__(self, owf: OWF_DLP, seed_bits: int = 64):
+        self.owf = owf
+        self.seed_bits = seed_bits
+        self._seed_val: int = 0
+        self._state: int = 0
+
+    def seed(self, s: int | bytes) -> None:
+        """Set internal seed state (required black-box API)."""
+        if isinstance(s, bytes):
+            s_int = _bytes_to_int(s)
+        else:
+            s_int = int(s)
+        mask = (1 << self.seed_bits) - 1
+        self._seed_val = s_int & mask
+        self._state = self._seed_val
 
     def _hard_core_bit(self, x: int) -> int:
-        """Goldreich-Levin hard-core predicate: inner product mod 2."""
-        # Simplified: LSB of f(x) (provably hard-core under DLP)
-        return self.owf.evaluate(x) & 1
+        """LSB of x used as simple hard-core predicate."""
+        return x & 1
 
     def next_bits(self, n: int) -> bytes:
-        """Generate n pseudorandom bits as bytes (ceiling(n/8) bytes)."""
-        x = self._seed_val
-        bits = []
+        """Return next n pseudorandom bits as packed bytes."""
+        if n <= 0:
+            return b""
+        bits: List[int] = []
         for _ in range(n):
-            b = self._hard_core_bit(x)
-            bits.append(b)
-            x = self.owf.evaluate(x) % (2**127)  # keep manageable
-        # Pack bits into bytes
+            bits.append(self._hard_core_bit(self._state))
+            self._state = self.owf.evaluate(self._state)
         out = bytearray()
         for i in range(0, len(bits), 8):
             byte = 0
-            for j, bit in enumerate(bits[i:i+8]):
+            for j, bit in enumerate(bits[i : i + 8]):
                 byte |= (bit << (7 - j))
             out.append(byte)
         return bytes(out)
 
-    def generate(self, seed: int, length_bits: int) -> bytes:
-        """Main interface: seed s, produce length_bits pseudorandom bits."""
+    def generate(self, seed: int | bytes, length_bits: int) -> bytes:
+        """Compatibility helper used by other assignments."""
         self.seed(seed)
         return self.next_bits(length_bits)
 
+    def expand(self, seed: int | bytes, ell_bits: int) -> bytes:
+        """Return n + ell pseudorandom bits (no seed leakage)."""
+        self.seed(seed)
+        total_bits = self.seed_bits + ell_bits
+        return self.next_bits(total_bits)
 
-# ─────────────────────────────────────────────────────────────
-# Backward: OWF from PRG
-# f(s) = G(s) is a OWF — inversion would recover seed
-# ─────────────────────────────────────────────────────────────
+
 class OWF_from_PRG:
+    """Backward reduction PRG -> OWF.
+
+    Argument sketch:
+    If an efficient inverter I could recover s from f(s)=G(s) with non-negligible
+    probability, one can distinguish G(U_n) from U_m by checking whether
+    G(I(y))==y. This contradicts PRG security. Hence f(s)=G(s) is one-way.
     """
-    Backward direction: PRG → OWF
-    Define f(s) = G(s). Inverting f recovers s, breaking PRG pseudorandomness.
-    """
+
     def __init__(self, prg: PRG_from_OWF):
         self.prg = prg
 
-    def evaluate(self, s: int) -> bytes:
-        """OWF evaluation: f(s) = G(s)."""
-        return self.prg.generate(s, 64)
+    def evaluate(self, s: int | bytes, ell_bits: int = 256) -> bytes:
+        """OWF evaluation f(s)=G(s), emitting n+ell bits."""
+        return self.prg.expand(s, ell_bits)
 
-    def demonstrate_hardness(self, max_attempts: int = 2000, output_bits: int = 16) -> dict:
-        """
-        Show that recovering s from G(s) is infeasible with a bounded demo search.
-
-        A bounded loop keeps PA#1 demos and run_all.py responsive while still
-        illustrating that inversion by naive guessing does not succeed.
-        """
-        s = int.from_bytes(os.urandom(8), 'big')
-        gs = self.prg.generate(s, output_bits)
-        found = None
+    def verify_hardness(self, trials: int = 20, max_attempts: int = 20_000, ell_bits: int = 64) -> Dict[str, object]:
+        """Demo: bounded inversion attempts for f(s)=G(s) do not recover seed."""
+        recovered = 0
         t0 = time.time()
-        for guess in range(1, max_attempts + 1):
-            if self.prg.generate(guess, output_bits) == gs:
-                found = guess
-                break
-        elapsed = round(time.time() - t0, 4)
-        successful_inversion = found is not None and found == s
+        for _ in range(trials):
+            s = _bytes_to_int(os.urandom(8))
+            target = self.evaluate(s, ell_bits=ell_bits)
+            found_exact = False
+            for _ in range(max_attempts):
+                guess = _bytes_to_int(os.urandom(8))
+                if self.evaluate(guess, ell_bits=ell_bits) == target:
+                    found_exact = guess == s
+                    break
+            if found_exact:
+                recovered += 1
+        elapsed = time.time() - t0
+        success_rate = recovered / trials if trials else 0.0
         return {
-            'seed': s,
-            'output_hex': gs.hex(),
-            'attempts': max_attempts,
-            'elapsed_s': elapsed,
-            'brute_force_found': found is not None,
-            'exact_seed_recovered': successful_inversion,
-            'conclusion': 'No exact preimage found in bounded search — supports OWF intuition'
+            "function": "f(s)=G(s)",
+            "trials": trials,
+            "attempts_per_trial": max_attempts,
+            "recovered_exact_seed": recovered,
+            "success_rate": round(success_rate, 6),
+            "elapsed_s": round(elapsed, 4),
+            "conclusion": "Adversary fails to recover seed in bounded PPT-style search",
         }
 
+    # Backward-compatible alias expected by previous README text.
+    def demonstrate_hardness(self, max_attempts: int = 2_000, output_bits: int = 16) -> Dict[str, object]:
+        return self.verify_hardness(trials=1, max_attempts=max_attempts, ell_bits=output_bits)
 
-# ─────────────────────────────────────────────────────────────
-# Statistical Tests (NIST SP 800-22 subset)
-# ─────────────────────────────────────────────────────────────
+
 class StatisticalTests:
 
     @staticmethod
@@ -283,69 +354,75 @@ class StatisticalTests:
 
     @classmethod
     def frequency_monobit(cls, data: bytes) -> dict:
-        """NIST Test 1: Frequency (Monobit) Test."""
+        """NIST SP 800-22 Frequency (Monobit) test."""
         bits = cls.to_bits(data)
         n = len(bits)
+        if n == 0:
+            return {"test": "Frequency (Monobit)", "pass": False, "reason": "empty input"}
         s = sum(1 if b == 1 else -1 for b in bits)
         s_obs = abs(s) / math.sqrt(n)
-        import math as m
         p_value = math.erfc(s_obs / math.sqrt(2))
         return {
-            'test': 'Frequency (Monobit)',
-            'n': n, 'ones': sum(bits), 'zeros': n - sum(bits),
-            'ratio': round(sum(bits) / n, 4),
-            's_obs': round(s_obs, 4),
-            'p_value': round(p_value, 4),
-            'pass': p_value >= 0.01
+            "test": "Frequency (Monobit)",
+            "n": n,
+            "ones": sum(bits),
+            "zeros": n - sum(bits),
+            "ratio": round(sum(bits) / n, 4),
+            "p_value": round(p_value, 6),
+            "pass": p_value >= 0.01,
         }
 
     @classmethod
     def runs_test(cls, data: bytes) -> dict:
-        """NIST Test 3: Runs Test."""
+        """NIST SP 800-22 Runs test."""
         bits = cls.to_bits(data)
         n = len(bits)
+        if n < 2:
+            return {"test": "Runs", "pass": False, "reason": "input too short"}
         ones = sum(bits)
         pi = ones / n
-        # Pre-test: check if frequency test passes first
         if abs(pi - 0.5) >= 2 / math.sqrt(n):
-            return {'test': 'Runs', 'pass': False, 'reason': 'Frequency pre-test failed'}
+            return {"test": "Runs", "pass": False, "reason": "frequency pre-test failed", "p_value": 0.0}
         runs = 1 + sum(1 for i in range(1, n) if bits[i] != bits[i-1])
-        v_obs = runs
         expected = 2 * n * pi * (1 - pi)
-        std = 2 * math.sqrt(2 * n) * pi * (1 - pi)
-        # Simplified p-value approximation
-        z = (v_obs - expected) / std if std > 0 else 0
-        p_value = math.erfc(abs(z) / math.sqrt(2))
+        denom = 2 * math.sqrt(2 * n) * pi * (1 - pi)
+        p_value = math.erfc(abs(runs - expected) / denom) if denom > 0 else 0.0
         return {
-            'test': 'Runs',
-            'n': n, 'runs': runs, 'expected_runs': round(expected, 2),
-            'p_value': round(p_value, 4),
-            'pass': p_value >= 0.01
+            "test": "Runs",
+            "n": n,
+            "runs": runs,
+            "expected_runs": round(expected, 2),
+            "p_value": round(p_value, 6),
+            "pass": p_value >= 0.01,
         }
 
     @classmethod
     def serial_test(cls, data: bytes, m: int = 2) -> dict:
-        """NIST Test 7: Serial Test (m=2, overlapping patterns)."""
+        """NIST SP 800-22 Serial test (toy m=2 implementation)."""
         bits = cls.to_bits(data)
         n = len(bits)
+        if n < max(16, 2 * m):
+            return {"test": f"Serial (m={m})", "pass": False, "reason": "input too short"}
+
         patterns_m = {}
         patterns_m1 = {}
-        patterns_m2 = {}
         for i in range(n):
-            pm = tuple(bits[i:i+m] + bits[:max(0,m-(n-i))])
-            pm1 = tuple(bits[i:i+m-1] + bits[:max(0,m-1-(n-i))])
-            pm2 = tuple(bits[i:i+m+1] + bits[:max(0,m+1-(n-i))])
+            pm = tuple(bits[i : i + m] + bits[: max(0, m - (n - i))])
+            pm1 = tuple(bits[i : i + m - 1] + bits[: max(0, m - 1 - (n - i))])
             patterns_m[pm] = patterns_m.get(pm, 0) + 1
             patterns_m1[pm1] = patterns_m1.get(pm1, 0) + 1
+
         psi_m = sum(v**2 for v in patterns_m.values()) * (2**m) / n - n
-        psi_m1 = sum(v**2 for v in patterns_m1.values()) * (2**(m-1)) / n - n
+        psi_m1 = sum(v**2 for v in patterns_m1.values()) * (2 ** (m - 1)) / n - n
         delta1 = psi_m - psi_m1
         p_value = math.exp(-delta1 / 2) if delta1 > 0 else 1.0
         return {
-            'test': f'Serial (m={m})',
-            'n': n, 'psi_m': round(psi_m, 4), 'delta1': round(delta1, 4),
-            'p_value': round(p_value, 4),
-            'pass': p_value >= 0.01
+            "test": f"Serial (m={m})",
+            "n": n,
+            "psi_m": round(psi_m, 4),
+            "delta1": round(delta1, 4),
+            "p_value": round(p_value, 6),
+            "pass": p_value >= 0.01,
         }
 
     @classmethod
@@ -357,54 +434,62 @@ class StatisticalTests:
         ]
 
 
-# ─────────────────────────────────────────────────────────────
-# Demo / Driver
-# ─────────────────────────────────────────────────────────────
 def demo():
-    print("=" * 60)
-    print("PA #1 — One-Way Functions & Pseudorandom Generators")
-    print("=" * 60)
+    print("=" * 62)
+    print("PA #1 - One-Way Functions and Pseudorandom Generators")
+    print("=" * 62)
 
-    # DLP OWF
-    print("\n[OWF — DLP]")
+    print("\n[1] OWF (DLP) with evaluate(x) and verify_hardness()")
     owf = OWF_DLP()
-    x = 42
+    x = 123456
     y = owf.evaluate(x)
-    print(f"  f({x}) = g^{x} mod p = {hex(y)[:20]}...")
-    hardness = owf.verify_hardness(n_bits=32)
-    print(f"  Hardness demo: {hardness['conclusion']}")
+    print(f"  Group: p={owf.p}, q={owf.q}, g={owf.g}")
+    print(f"  f({x}) = {y}")
+    dlp_hardness = owf.verify_hardness(trials=20, guesses_per_trial=5000)
+    print(
+        "  Hardness demo:",
+        f"success_rate={dlp_hardness['success_rate']},",
+        dlp_hardness["conclusion"],
+    )
 
-    # AES OWF
-    print("\n[OWF — AES Davies-Meyer]")
-    owf_aes = OWF_AES()
-    k = os.urandom(16)
-    fk = owf_aes.evaluate(k)
-    print(f"  f(k) = AES_k(0^128) XOR k = {fk.hex()}")
+    print("\n[2] PRG from OWF (seed(s), next_bits(n), n+ell expansion)")
+    prg = PRG_from_OWF(owf, seed_bits=64)
+    seed_val = _bytes_to_int(os.urandom(8))
+    ell_bits = 256
+    out_n_plus_ell = prg.expand(seed_val, ell_bits=ell_bits)
+    print(f"  Seed (64-bit): 0x{seed_val:016x}")
+    print(f"  Output length: {len(out_n_plus_ell) * 8} bits (n+ell)")
+    print(f"  G(seed) prefix: {out_n_plus_ell[:16].hex()}...")
 
-    # PRG from OWF
-    print("\n[PRG from OWF — HILL construction]")
-    prg = PRG_from_OWF(owf)
-    seed_val = int.from_bytes(os.urandom(8), 'big') % (2**32)
-    output = prg.generate(seed_val, 128)
-    print(f"  Seed: {seed_val}")
-    print(f"  G(seed) = {output.hex()} ({len(output)*8} bits)")
+    print("\n[2.1] PRG determinism check")
 
-    # Statistical tests
-    print("\n[Statistical Tests on PRG output]")
-    # Generate more bits for meaningful tests
-    large_output = prg.generate(seed_val, 1000)
+    s = 12345
+
+    out1 = prg.generate(s, 128)
+    out2 = prg.generate(s, 128)
+    out3 = prg.generate(s + 1, 128)
+
+    print("  Same seed consistency:", "PASS" if out1 == out2 else "FAIL")
+    print("  Different seed variation:", "PASS" if out1 != out3 else "FAIL")
+
+    print("\n[3] NIST-style statistical tests (frequency, runs, serial)")
+    large_output = prg.generate(seed_val, 8192)
     results = StatisticalTests.run_all(large_output)
     for r in results:
-        status = "PASS ✓" if r['pass'] else "FAIL ✗"
-        print(f"  {r['test']}: p={r.get('p_value','N/A')} [{status}]")
+        status = "PASS" if r.get("pass") else "FAIL"
+        pv = r.get("p_value", "N/A")
+        print(f"  {r['test']}: p-value={pv} [{status}]")
 
-    # Backward: OWF from PRG
-    print("\n[Backward: OWF from PRG]")
+    print("\n[4] OWF from PRG (f(s)=G(s)) with inversion demo")
     owf_from_prg = OWF_from_PRG(prg)
-    demo_res = owf_from_prg.demonstrate_hardness()
-    print(f"  {demo_res['conclusion']}")
+    back_demo = owf_from_prg.verify_hardness(trials=10, max_attempts=3000, ell_bits=64)
+    print(
+        "  Inversion demo:",
+        f"success_rate={back_demo['success_rate']},",
+        back_demo["conclusion"],
+    )
 
-    print("\n✓ PA#1 complete.")
+    print("\nPA#1 demo complete.")
 
 
 if __name__ == "__main__":
