@@ -50,7 +50,7 @@ class IND_CCA2_Game:
 
     def __init__(self, bits=128):
         self.eg = ElGamal(bits)
-        self.rsa = RSA(bits*2)
+        self.rsa = RSA(max(512, bits*4))
         self.signer_sk = self.rsa.sk
         self.verifier_pk = self.rsa.pk
         self.keys = self.eg.keygen()
@@ -117,7 +117,7 @@ def demo_pa17():
     receiver_keys = eg.keygen()
     sk_enc, pk_enc = receiver_keys['sk'], receiver_keys['pk']
     
-    rsa = RSA(bits=256)
+    rsa = RSA(bits=512)
     signer_sk = rsa.sk
     verifier_pk = rsa.pk
     

@@ -84,25 +84,22 @@ class OFB:
     Encryption and decryption are the same operation (XOR with keystream).
     """
 
-    def _ks(self, key, iv, n_blocks):
+    def _ks(self, key, iv, length):
         ks = b''
         s = iv
+        n_blocks = (length + BLOCK - 1) // BLOCK
         for _ in range(n_blocks):
             s = _enc(key, s)
             ks += s
-        return ks
+        return ks[:length]
 
     def encrypt(self, key, iv, msg):
-        p = _pad(msg)
-        ks = self._ks(key, iv, len(p) // BLOCK)
-        return _xor(p, ks)
+        ks = self._ks(key, iv, len(msg))
+        return _xor(msg, ks)
 
     def decrypt(self, key, iv, ct):
-        # ct length is always a multiple of BLOCK because encrypt padded.
-        if len(ct) % BLOCK != 0:
-            raise ValueError("OFB ciphertext must be a multiple of BLOCK")
-        ks = self._ks(key, iv, len(ct) // BLOCK)
-        return _unpad(_xor(ct, ks))
+        ks = self._ks(key, iv, len(ct))
+        return _xor(ct, ks)
 
 
 # ─────────────── CTR (Randomized Counter) ───────────────
@@ -111,23 +108,28 @@ class CTR:
 
     def encrypt(self, key, msg):
         r = os.urandom(BLOCK)
-        p = _pad(msg)
         ct = b''
         r_int = _block_int(r)
-        for i in range(len(p) // BLOCK):
+        n_blocks = (len(msg) + BLOCK - 1) // BLOCK
+        for i in range(n_blocks):
             ctr = _int_block((r_int + i) % (2 ** 128))
-            ct += _xor(_enc(key, ctr), p[i * BLOCK:(i + 1) * BLOCK])
+            ks_block = _enc(key, ctr)
+            msg_chunk = msg[i * BLOCK:(i + 1) * BLOCK]
+            ks_chunk = ks_block[:len(msg_chunk)]
+            ct += _xor(ks_chunk, msg_chunk)
         return r, ct
 
     def decrypt(self, key, r, ct):
-        if len(ct) % BLOCK != 0:
-            raise ValueError("CTR ciphertext must be a multiple of BLOCK")
         pt = b''
         r_int = _block_int(r)
-        for i in range(len(ct) // BLOCK):
+        n_blocks = (len(ct) + BLOCK - 1) // BLOCK
+        for i in range(n_blocks):
             ctr = _int_block((r_int + i) % (2 ** 128))
-            pt += _xor(_enc(key, ctr), ct[i * BLOCK:(i + 1) * BLOCK])
-        return _unpad(pt)
+            ks_block = _enc(key, ctr)
+            ct_chunk = ct[i * BLOCK:(i + 1) * BLOCK]
+            ks_chunk = ks_block[:len(ct_chunk)]
+            pt += _xor(ks_chunk, ct_chunk)
+        return pt
 
 
 # ─────────────── Unified API ───────────────
@@ -178,6 +180,17 @@ def demo():
     c1 = cbc.encrypt(key, iv, block0 + b"tail-one")
     c2 = cbc.encrypt(key, iv, block0 + b"tail-two")
     print(f"  Block 0 leak: c1[0:16]==c2[0:16] → {c1[:16] == c2[:16]} (matching prefix leaks)")
+
+    print("\n  [OFB Keystream-reuse attack]")
+    iv2 = os.urandom(BLOCK)
+    ofb = OFB()
+    m1 = b"Secret message A"
+    m2 = b"Another message!"
+    c1_ofb = ofb.encrypt(key, iv2, m1)
+    c2_ofb = ofb.encrypt(key, iv2, m2)
+    xor_ct = _xor(c1_ofb, c2_ofb)
+    xor_pt = _xor(m1, m2)
+    print(f"  c1 XOR c2 == m1 XOR m2: {xor_ct == xor_pt} (Plaintext XOR leaked!)")
 
     print("✓ PA#4 complete.")
 
