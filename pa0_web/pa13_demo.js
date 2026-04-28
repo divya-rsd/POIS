@@ -1,60 +1,79 @@
-async function runTest() {
-    const n = document.getElementById('inp-n').value.trim();
-    const k = parseInt(document.getElementById('inp-k').value);
-    const btn = document.getElementById('btn-run');
+const kInp = document.getElementById('mr-k');
+const kVal = document.getElementById('mr-k-val');
+const btnTest = document.getElementById('btn-test');
+const nInp = document.getElementById('mr-n');
+const statusBox = document.getElementById('mr-status');
+const timeBox = document.getElementById('mr-time');
+const traceBox = document.getElementById('mr-trace');
+
+kInp.addEventListener('input', () => {
+  kVal.textContent = kInp.value;
+});
+
+btnTest.addEventListener('click', async () => {
+  const nStr = nInp.value.trim();
+  const kStr = kInp.value;
+  
+  if(!nStr) return;
+  
+  btnTest.disabled = true;
+  statusBox.style.display = 'none';
+  timeBox.textContent = 'Testing...';
+  traceBox.innerHTML = 'Testing...';
+  
+  try {
+    const res = await Backend.pa13Primality(nStr, kStr);
     
-    if (!n) {
-        alert("Please enter a number.");
-        return;
+    if(res.error) {
+      statusBox.style.display = 'block';
+      statusBox.className = 'status err';
+      statusBox.textContent = res.error;
+      timeBox.textContent = '';
+      traceBox.innerHTML = '';
+      btnTest.disabled = false;
+      return;
     }
     
-    btn.disabled = true;
-    document.getElementById('result-banner').style.display = 'none';
-    document.getElementById('trace-container').style.display = 'none';
-    document.getElementById('trace-body').innerHTML = 'Testing...';
+    statusBox.style.display = 'block';
+    if(res.is_prime) {
+      statusBox.className = 'status ok';
+      statusBox.textContent = 'PROBABLY PRIME';
+    } else {
+      statusBox.className = 'status err';
+      statusBox.textContent = 'COMPOSITE';
+    }
     
-    try {
-        const res = await fetch('/api/pa13/miller_rabin', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ n, k })
-        });
-        const data = await res.json();
-        
-        if (data.error) {
-            alert(data.error);
-            return;
-        }
-        
-        const banner = document.getElementById('result-banner');
-        if (data.is_prime) {
-            banner.className = 'result-banner prime';
-            banner.innerHTML = '✨ PROBABLY PRIME ✨';
+    timeBox.textContent = `Completed in ${res.time_ms} ms.`;
+    
+    // Render trace
+    traceBox.innerHTML = '';
+    if(res.trace && res.trace.length > 0) {
+      res.trace.forEach(tr => {
+        const d = document.createElement('div');
+        d.className = 'trace-item';
+        if(tr.event === 'factor') {
+          d.innerHTML = `Factor out 2: N-1 = 2^${tr.r} * ${tr.d}`;
+        } else if(tr.event === 'round') {
+          d.innerHTML = `Round ${tr.round}: <span class="witness">a=${tr.a}</span>. x=${tr.x}`;
+        } else if(tr.event === 'composite') {
+          d.innerHTML = `<span class="composite-reason">Return Composite: ${tr.reason}</span>`;
+        } else if(tr.event === 'prime') {
+          d.innerHTML = `<span class="witness">Return Probably Prime</span>`;
         } else {
-            banner.className = 'result-banner composite';
-            banner.innerHTML = '🚨 DEFINITELY COMPOSITE 🚨';
+          d.textContent = JSON.stringify(tr);
         }
-        banner.style.display = 'block';
-        
-        document.getElementById('trace-time').innerText = `Time: ${data.time_ms}ms`;
-        
-        const tb = document.getElementById('trace-body');
-        tb.innerHTML = '';
-        
-        data.trace.forEach((r, idx) => {
-            const div = document.createElement('div');
-            div.className = 'trace-round';
-            div.innerHTML = `[Round ${idx+1}] <span class="lbl">Witness a:</span> <span class="val">${r.a}</span><br>
-                             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="lbl">Exponentiation x:</span> <span class="val">${r.x}</span> ➔ <span>${r.result.toUpperCase()}</span>`;
-            tb.appendChild(div);
-        });
-        
-        document.getElementById('trace-container').style.display = 'block';
-        
-    } catch(err) {
-        console.error(err);
-        alert("Backend connection failed.");
-    } finally {
-        btn.disabled = false;
+        traceBox.appendChild(d);
+      });
+    } else {
+      traceBox.textContent = "No trace available (N might be trivial).";
     }
-}
+    
+  } catch(e) {
+    statusBox.style.display = 'block';
+    statusBox.className = 'status err';
+    statusBox.textContent = 'Error: ' + e.message;
+    timeBox.textContent = '';
+  }
+  
+  btnTest.disabled = false;
+});

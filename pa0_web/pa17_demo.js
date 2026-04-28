@@ -1,127 +1,82 @@
-let currentState = null;
+const msgInp = document.getElementById('pt-msg');
+const cpaCtBox = document.getElementById('cpa-ct');
+const cpaDecBox = document.getElementById('cpa-dec');
+const cpaKInp = document.getElementById('cpa-k');
 
-async function runEncrypt() {
-    const m = parseInt(document.getElementById('inp-msg').value) || 1234;
+const ccaCtBox = document.getElementById('cca-ct');
+const ccaDecBox = document.getElementById('cca-dec');
+const ccaKInp = document.getElementById('cca-k');
+const ccaStatus = document.getElementById('cca-status');
+
+let currentCpa = null;
+let currentCca = null;
+
+document.getElementById('btn-enc').addEventListener('click', async () => {
+  const m = msgInp.value;
+  if(!m) return;
+  
+  cpaDecBox.value = '';
+  ccaDecBox.value = '';
+  ccaStatus.style.display = 'none';
+  
+  try {
+    // 1. CPA (Plain ElGamal)
+    const resCpa = await Backend.pa16Encrypt(m);
+    currentCpa = { c1: res.c1, c2: res.c2 };
+    cpaCtBox.textContent = `c1: ${resCpa.c1}\nc2: ${resCpa.c2}`;
     
-    try {
-        const res = await fetch('/api/pa17/encrypt', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ m })
-        });
-        const data = await res.json();
-        
-        currentState = data;
-        
-        // Populate Signcrypt Panel
-        document.getElementById('sc-c1').innerText = truncateHex(data.c1);
-        document.getElementById('sc-c2').innerText = truncateHex(data.c2);
-        document.getElementById('sc-sig').innerText = truncateHex(data.sig);
-        document.getElementById('sc-out').style.display = 'block';
-        document.getElementById('tamper-row').style.display = 'flex';
-        document.getElementById('sc-dec-out').style.display = 'none';
-
-        // Populate ElGamal Panel
-        document.getElementById('eg-c1').innerText = truncateHex(data.plain_c1);
-        document.getElementById('eg-c2').innerText = truncateHex(data.plain_c2);
-        document.getElementById('eg-out').style.display = 'block';
-        document.getElementById('eg-tamper-row').style.display = 'flex';
-        document.getElementById('eg-dec-out').style.display = 'none';
-
-    } catch(err) {
-        alert("Error connecting to backend: " + err);
-    }
-}
-
-function truncateHex(hexStr, chars=48) {
-    if (!hexStr) return "";
-    if (hexStr.length > chars) return hexStr.substring(0, chars) + "...";
-    return hexStr;
-}
-
-// Tamper Functions - visually update the UI and state
-function tamperSigncrypt() {
-    if(!currentState) return;
-    // Simulate multiplying c2 by 2 by appending a visual marker or just changing the last char to show modification
-    // Since c2 is a hex string, to properly do c2*2 we'd need bigint math, but let's let the backend do the math.
-    // For visual representation we just show it's tampered. We will send the tamper flag to backend or just modify the hex string.
-    // Actually, it's easier to just do it via big int if we have it, or let the backend do it.
-    // Let's modify the hex visually:
-    const oldVal = document.getElementById('sc-c2').innerText;
-    document.getElementById('sc-c2').innerText = "[TAMPERED] " + oldVal;
-    currentState.sc_tampered = true;
-}
-
-function tamperElGamal() {
-    if(!currentState) return;
-    const oldVal = document.getElementById('eg-c2').innerText;
-    document.getElementById('eg-c2').innerText = "[TAMPERED] " + oldVal;
-    currentState.eg_tampered = true;
-}
-
-async function decryptSigncrypt() {
-    if(!currentState) return;
+    // 2. CCA (Encrypt-then-Sign)
+    const resCca = await Backend.pa17CcaEncrypt(m);
+    currentCca = { c1: resCca.c1, c2: resCca.c2, sig: resCca.sig };
+    ccaCtBox.textContent = `c1: ${resCca.c1}\nc2: ${resCca.c2}\nsig: ${resCca.sig.substring(0,20)}...`;
     
-    // If tampered, we simulate multiplying c2 by 2 using BigInt
-    let c2_val = currentState.c2;
-    if(currentState.sc_tampered) {
-        c2_val = (BigInt('0x' + currentState.c2) * 2n).toString(16);
-    }
+  } catch(e) {
+    alert("Encryption failed: " + e.message);
+  }
+});
 
-    try {
-        const res = await fetch('/api/pa17/decrypt_signcrypt', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                c1: currentState.c1, 
-                c2: c2_val, 
-                sig: currentState.sig 
-            })
-        });
-        const data = await res.json();
-        
-        const outBox = document.getElementById('sc-dec-out');
-        const outVal = document.getElementById('sc-dec-val');
-        outBox.style.display = 'block';
-        
-        if(data.rejected) {
-            outVal.innerHTML = "<span style='color:var(--red)'>Signature check failed! Decryption aborted. Output: ⊥</span>";
-        } else {
-            outVal.innerHTML = `<span style='color:var(--green)'>Signature valid. Decrypted: ${data.dec}</span>`;
-        }
-    } catch(err) {
-        alert("Error: " + err);
-    }
-}
-
-async function decryptElGamal() {
-    if(!currentState) return;
+document.getElementById('btn-mal-cpa').addEventListener('click', async () => {
+  if(!currentCpa) return;
+  const k = cpaKInp.value;
+  if(!k) return;
+  
+  try {
+    // Malleate
+    const resMal = await Backend.pa16Malleate(currentCpa.c1, currentCpa.c2, k);
+    cpaCtBox.textContent = `c1: ${resMal.c1}\nc2: ${resMal.c2} (tampered)`;
     
-    let c2_val = currentState.plain_c2;
-    if(currentState.eg_tampered) {
-        c2_val = (BigInt('0x' + currentState.plain_c2) * 2n).toString(16);
-    }
+    // Decrypt
+    const resDec = await Backend.pa16Decrypt(resMal.c1, resMal.c2);
+    cpaDecBox.value = resDec.m;
+  } catch(e) {
+    cpaDecBox.value = "Error: " + e.message;
+  }
+});
 
-    try {
-        const res = await fetch('/api/pa17/decrypt_elgamal', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                c1: currentState.plain_c1, 
-                c2: c2_val
-            })
-        });
-        const data = await res.json();
-        
-        const outBox = document.getElementById('eg-dec-out');
-        const outVal = document.getElementById('eg-dec-val');
-        outBox.style.display = 'block';
-        
-        outVal.innerHTML = `<span style='color:var(--green)'>Decrypted without verification. Output: ${data.dec}</span>`;
-        if (currentState.eg_tampered && data.dec == currentState.m * 2) {
-            outVal.innerHTML += `<br><br><span style='color:var(--amber)'>Adversary successfully mauled the plaintext to 2m!</span>`;
-        }
-    } catch(err) {
-        alert("Error: " + err);
+document.getElementById('btn-mal-cca').addEventListener('click', async () => {
+  if(!currentCca) return;
+  const k = ccaKInp.value;
+  if(!k) return;
+  
+  try {
+    // Malleate ciphertext (signature stays same, meaning it will be invalid for new CT)
+    const resMal = await Backend.pa16Malleate(currentCca.c1, currentCca.c2, k);
+    ccaCtBox.textContent = `c1: ${resMal.c1}\nc2: ${resMal.c2} (tampered)\nsig: ${currentCca.sig.substring(0,20)}...`;
+    
+    // Decrypt
+    const resDec = await Backend.pa17CcaDecrypt(resMal.c1, resMal.c2, currentCca.sig);
+    
+    ccaStatus.style.display = 'block';
+    if(resDec.valid) {
+      ccaStatus.className = 'status ok';
+      ccaStatus.textContent = 'Decrypted successfully.';
+      ccaDecBox.value = resDec.m;
+    } else {
+      ccaStatus.className = 'status err';
+      ccaStatus.textContent = 'REJECTED: Invalid Signature. Malleability attack thwarted.';
+      ccaDecBox.value = '---';
     }
-}
+  } catch(e) {
+    ccaDecBox.value = "Error: " + e.message;
+  }
+});

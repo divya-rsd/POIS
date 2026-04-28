@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #1 - OWF & PRG</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .layout-pa {
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #1</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Live PRG Output Viewer</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Generate pseudorandom bytes from a short seed using a One-Way Function based PRG. Test the output for uniform distribution of bits.</div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Seed (Hex or Int)</div>
+      <input type="text" id="prg-seed" value="42" placeholder="e.g. 42 or a1b2...">
+      
+      <div class="fl" style="margin-top: 10px;">Output Length: <span id="prg-len-val">128</span> bits</div>
+      <div class="slider-container">
+        <input type="range" id="prg-len" min="64" max="2048" step="64" value="128">
+      </div>
+
+      <div class="row" style="margin-top: 15px;">
+        <button class="btn btn-primary" id="btn-generate">▶ Generate PRG</button>
+        <button class="btn" id="btn-test">⚑ Randomness Test</button>
+      </div>
+    </div>
+
+    <div class="card fg">
+      <div class="fl">PRG Output (Hex)</div>
+      <textarea id="prg-out" class="mono" style="width:100%; height:80px; resize:none; background:var(--bg);" readonly></textarea>
+      
+      <div id="test-results" style="display:none; margin-top:15px;">
+        <div class="fl" style="color:var(--accent);">Randomness Test Results (Bit Distribution)</div>
+        <div class="chart-container">
+          <canvas id="randomChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="pa1_demo.js"></script>
+</body>
+</html>

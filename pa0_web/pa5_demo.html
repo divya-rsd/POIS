@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #5 - MACs</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+  .tab { padding: 8px 16px; cursor: pointer; border-radius: var(--r); transition: var(--t); font-family: var(--mono); font-size: 12px; }
+  .tab.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(78,205,196,.3); }
+  
+  .mac-list { display: flex; flex-direction: column; gap: 5px; max-height: 200px; overflow-y: auto; background: var(--surface2); padding: 10px; border-radius: var(--r); border: 1px solid var(--border2); }
+  .mac-item { font-family: var(--mono); font-size: 11px; padding: 5px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+  .mac-item:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #5</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Message Authentication Codes</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Explore Existential Unforgeability under Chosen-Message Attacks (EUF-CMA).</div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="eufcma">EUF-CMA Forgery Game</div>
+    <div class="tab" data-tab="lenext">Length-Extension Demo (CBC-MAC)</div>
+  </div>
+
+  <div id="tab-eufcma">
+    <div class="grid-2">
+      <div class="card fg">
+        <div class="fl">Oracle Queries (50 Signed Pairs)</div>
+        <div class="mac-list" id="mac-list">
+          <div style="text-align:center; color:var(--text3); padding: 20px;">Click Generate to populate</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btn-gen-oracle" style="margin-top: 10px;">↺ Generate Queries</button>
+      </div>
+
+      <div class="card fg">
+        <div class="fl">Submit Forgery</div>
+        <div class="fg" style="margin-top:10px">
+          <div class="fl" style="font-size:9px">New Message</div>
+          <input type="text" id="forgery-msg" placeholder="Must not be in oracle list">
+        </div>
+        <div class="fg" style="margin-top:10px">
+          <div class="fl" style="font-size:9px">Forged Tag (Hex)</div>
+          <input type="text" id="forgery-tag" placeholder="e.g. a1b2...">
+        </div>
+        
+        <button class="btn btn-primary" id="btn-forge" style="margin-top: 15px;">▶ Submit Forgery</button>
+        <div id="forge-res" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-lenext" style="display:none;">
+    <div class="card fg">
+      <div class="fl" style="margin-bottom: 10px; color:var(--red)">Vulnerability: Variable-Length CBC-MAC is NOT Secure</div>
+      <div class="hero-sub" style="margin-bottom: 15px;">If you have a message <code>m</code> and its CBC-MAC tag <code>t</code>, you can append a block <code>x</code> to forge a valid tag for <code>m || x</code> by exploiting the CBC-MAC structure (requires XORing <code>t</code>).</div>
+      
+      <div class="row">
+        <div class="fg" style="flex:1">
+          <div class="fl" style="font-size:9px">Original Message m (16 bytes)</div>
+          <input type="text" id="le-m" value="Transfer 100 USD">
+        </div>
+        <button class="btn" id="btn-le-mac" style="align-self: flex-end;">Get Tag</button>
+      </div>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Tag t</div>
+        <input type="text" id="le-t" readonly class="mono" style="background:var(--bg)">
+      </div>
+
+      <div class="row" style="margin-top:15px">
+        <div class="fg" style="flex:1">
+          <div class="fl" style="font-size:9px">Append Block (16 bytes)</div>
+          <input type="text" id="le-append" value=" to Eve account ">
+        </div>
+        <button class="btn btn-primary" id="btn-le-forge" style="align-self: flex-end;">▶ Forge Extended MAC</button>
+      </div>
+
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Forged Tag</div>
+        <input type="text" id="le-forge-t" readonly class="mono" style="background:var(--red-dim); color:var(--red); border-color:var(--red)">
+      </div>
+      
+      <div id="le-verify-res" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa5_demo.js"></script>
+</body>
+</html>

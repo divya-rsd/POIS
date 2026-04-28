@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #11 - Diffie-Hellman</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .actor-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r2); padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; transition: var(--t); }
+  .actor-name { font-family: var(--display); font-size: 20px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 5px; }
+  .actor-name.eve { color: var(--red); }
+  
+  .exchange-arrows { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 60px; color: var(--text3); font-size: 24px; font-family: var(--mono); }
+  .arrow { opacity: 0; transition: opacity 0.5s, transform 0.5s; transform: scale(0.5); }
+  .arrow.show { opacity: 1; transform: scale(1); }
+  
+  .dh-val { font-family: var(--mono); font-size: 11px; background: var(--bg); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); word-break: break-all; min-height: 28px; }
+  .dh-secret { color: var(--green); border-color: rgba(110,231,183,.3); background: var(--green-dim); }
+  .eve-panel { border-color: rgba(248,113,113,.3); background: var(--red-dim); display: none;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #11</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Diffie-Hellman Key Exchange</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Securely agree on a shared secret over an insecure channel. Enable Eve to see how an unauthenticated channel is completely broken by a Man-In-The-Middle (MITM) attack.</div>
+
+  <div class="card fg" style="margin-bottom: 20px; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
+    <div>
+      <input type="checkbox" id="dh-mitm"> 
+      <label for="dh-mitm" style="color:var(--red); font-weight: 500;">Enable Eve (MITM Attack)</label>
+    </div>
+    <button class="btn btn-primary" id="btn-exchange">▶ Run Exchange</button>
+  </div>
+
+  <div style="display: flex; gap: 15px; align-items: stretch;">
+    
+    <!-- Alice -->
+    <div class="actor-panel">
+      <div class="actor-name">Alice</div>
+      <div class="fl" style="font-size:9px">Public Key A (g^a)</div>
+      <div class="dh-val" id="alice-A"></div>
+      
+      <div class="fl" style="font-size:9px; margin-top:10px">Received Public Key</div>
+      <div class="dh-val" id="alice-rec"></div>
+      
+      <div class="fl" style="font-size:9px; margin-top:10px">Shared Secret K</div>
+      <div class="dh-val dh-secret" id="alice-K"></div>
+    </div>
+    
+    <!-- Arrows / Eve -->
+    <div class="exchange-arrows" id="exchange-mid">
+      <div class="arrow" id="arr-top">→</div>
+      <div class="arrow" id="arr-bot">←</div>
+    </div>
+    
+    <!-- Eve -->
+    <div class="actor-panel eve-panel" id="panel-eve">
+      <div class="actor-name eve">Eve (MITM)</div>
+      
+      <div class="fl" style="font-size:9px; color:var(--red)">Intercepted from Alice</div>
+      <div class="dh-val" id="eve-rec-A" style="border-color:var(--red)"></div>
+      
+      <div class="fl" style="font-size:9px; color:var(--red); margin-top:10px">Intercepted from Bob</div>
+      <div class="dh-val" id="eve-rec-B" style="border-color:var(--red)"></div>
+      
+      <div class="fl" style="font-size:9px; margin-top:10px">Forged Keys Sent (E_A, E_B)</div>
+      <div class="dh-val" id="eve-sent"></div>
+    </div>
+    
+    <!-- Bob -->
+    <div class="actor-panel">
+      <div class="actor-name">Bob</div>
+      <div class="fl" style="font-size:9px">Public Key B (g^b)</div>
+      <div class="dh-val" id="bob-B"></div>
+      
+      <div class="fl" style="font-size:9px; margin-top:10px">Received Public Key</div>
+      <div class="dh-val" id="bob-rec"></div>
+      
+      <div class="fl" style="font-size:9px; margin-top:10px">Shared Secret K</div>
+      <div class="dh-val dh-secret" id="bob-K"></div>
+    </div>
+    
+  </div>
+
+  <div id="dh-status" class="status" style="display:none; margin-top:20px; text-align:center"></div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa11_demo.js"></script>
+</body>
+</html>

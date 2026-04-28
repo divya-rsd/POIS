@@ -1,63 +1,61 @@
-let currentMode = 'textbook';
+const tabs = document.querySelectorAll('.tab');
+let activeMode = 'textbook';
 
-function setMode(mode) {
-    currentMode = mode;
-    document.getElementById('tab-textbook').className = mode === 'textbook' ? 'tab active' : 'tab';
-    document.getElementById('tab-pkcs').className = mode === 'pkcs15' ? 'tab active' : 'tab';
+tabs.forEach(t => {
+  t.addEventListener('click', () => {
+    tabs.forEach(tb => tb.classList.remove('active'));
+    t.classList.add('active');
+    activeMode = t.getAttribute('data-mode');
     
-    // Clear outputs when switching modes
-    document.getElementById('box-c1').innerText = '';
-    document.getElementById('box-c2').innerText = '';
-    document.getElementById('banner-status').style.display = 'none';
+    document.getElementById('status-box').style.display = 'none';
+    document.getElementById('box-c1').textContent = '';
+    document.getElementById('box-c2').textContent = '';
     document.getElementById('padding-panel').style.display = 'none';
-}
+  });
+});
 
-async function encryptTwice() {
-    const msg = document.getElementById('inp-msg').value;
-    const btn = document.getElementById('btn-enc');
+const btnEnc = document.getElementById('btn-enc');
+const statusBox = document.getElementById('status-box');
+const boxC1 = document.getElementById('box-c1');
+const boxC2 = document.getElementById('box-c2');
+const padPanel = document.getElementById('padding-panel');
+const padPs1 = document.getElementById('pad-ps1');
+const padPs2 = document.getElementById('pad-ps2');
+const inpMsg = document.getElementById('inp-msg');
+
+btnEnc.addEventListener('click', async () => {
+  const m = inpMsg.value;
+  if(!m) return;
+  
+  btnEnc.disabled = true;
+  statusBox.style.display = 'none';
+  padPanel.style.display = 'none';
+  
+  try {
+    const res = await Backend.pa12EncryptTwice(m, activeMode);
     
-    if (!msg) {
-        alert("Please enter a short message.");
-        return;
+    boxC1.textContent = res.c1;
+    boxC2.textContent = res.c2;
+    
+    statusBox.style.display = 'block';
+    if(res.match) {
+      statusBox.className = 'status err';
+      statusBox.textContent = 'VULNERABLE: C1 and C2 are identical. The cipher is deterministic (not CPA secure).';
+    } else {
+      statusBox.className = 'status ok';
+      statusBox.textContent = 'SECURE: C1 and C2 are completely different.';
+      
+      if(activeMode === 'pkcs') {
+        padPanel.style.display = 'block';
+        padPs1.textContent = res.ps1;
+        padPs2.textContent = res.ps2;
+      }
     }
-    
-    btn.disabled = true;
-    document.getElementById('box-c1').innerText = 'Encrypting...';
-    document.getElementById('box-c2').innerText = 'Encrypting...';
-    document.getElementById('banner-status').style.display = 'none';
-    document.getElementById('padding-panel').style.display = 'none';
-    
-    try {
-        const res = await fetch('/api/pa12/encrypt_twice', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ m: msg, mode: currentMode })
-        });
-        const data = await res.json();
-        
-        document.getElementById('box-c1').innerText = data.c1;
-        document.getElementById('box-c2').innerText = data.c2;
-        
-        const banner = document.getElementById('banner-status');
-        if (data.match) {
-            banner.className = 'banner red';
-            banner.innerHTML = '🚨 Identical ciphertexts: plaintext leaked. (Deterministic)';
-        } else {
-            banner.className = 'banner green';
-            banner.innerHTML = '✅ Ciphertexts differ each time. (Randomized)';
-        }
-        banner.style.display = 'block';
-        
-        if (currentMode === 'pkcs15' && !data.match) {
-            document.getElementById('pad-ps1').innerText = data.ps1;
-            document.getElementById('pad-ps2').innerText = data.ps2;
-            document.getElementById('padding-panel').style.display = 'block';
-        }
-        
-    } catch(err) {
-        console.error(err);
-        alert("Backend connection failed.");
-    } finally {
-        btn.disabled = false;
-    }
-}
+  } catch(e) {
+    statusBox.style.display = 'block';
+    statusBox.className = 'status err';
+    statusBox.textContent = 'Error: ' + e.message;
+  }
+  
+  btnEnc.disabled = false;
+});

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #4 - Modes of Operation</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+  .tab { padding: 8px 16px; cursor: pointer; border-radius: var(--r); transition: var(--t); font-family: var(--mono); font-size: 12px; }
+  .tab.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(78,205,196,.3); }
+  
+  .blocks { display: flex; gap: 15px; margin-top: 20px; }
+  .block-col { flex: 1; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .block { width: 100%; padding: 15px 10px; text-align: center; border: 1px solid var(--border2); border-radius: var(--r); background: var(--surface2); font-family: var(--mono); font-size: 11px; word-break: break-all; min-height: 60px; display: flex; align-items: center; justify-content: center; position: relative; transition: all 0.3s; }
+  .block.corrupted { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+  .block.identical { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+  
+  .arr-down { font-family: var(--mono); font-size: 16px; color: var(--text3); }
+  .btn-flip { position: absolute; top: 2px; right: 2px; font-size: 8px; padding: 2px 4px; background: transparent; border: 1px solid var(--text3); color: var(--text3); border-radius: 3px; cursor: pointer; }
+  .btn-flip:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #4</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Block Cipher Animator</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Explore how CBC, OFB, and CTR modes propagate errors. Encrypt a 3-block message, flip a bit in a ciphertext block, and observe the resulting plaintext corruption.</div>
+
+  <div class="tabs">
+    <div class="tab active" data-mode="CBC">CBC Mode</div>
+    <div class="tab" data-mode="OFB">OFB Mode</div>
+    <div class="tab" data-mode="CTR">CTR Mode</div>
+  </div>
+
+  <div class="card fg">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Plaintext Message (3 blocks ~ 48 bytes)</div>
+        <input type="text" id="pt-msg" value="Hello! This is a test message. A full 48 bytes!" placeholder="Enter exactly 48 bytes">
+      </div>
+      <div class="fg" style="width: auto">
+        <div class="fl" style="margin-bottom: 5px;">Options</div>
+        <div style="display:flex; align-items:center; gap: 8px; height:34px">
+          <input type="checkbox" id="reuse-iv"> <label for="reuse-iv" style="font-size:12px; color:var(--text2)">Reuse IV (Fixed)</label>
+        </div>
+      </div>
+    </div>
+    
+    <div class="row" style="margin-top:15px">
+      <button class="btn btn-primary" id="btn-enc">▶ Encrypt</button>
+      <button class="btn btn-ghost" id="btn-reset">↺ Reset</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px; display:none;" id="anim-area">
+    <div class="fl" style="margin-bottom: 10px;">Ciphertext & Decryption Flow</div>
+    <div class="blocks" id="blocks-container">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="pa4_demo.js"></script>
+</body>
+</html>

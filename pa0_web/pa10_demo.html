@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #10 - HMAC</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .attack-panel { display: flex; flex-direction: column; gap: 10px; }
+  .tag-box { font-family: var(--mono); font-size: 11px; background: var(--surface3); padding: 10px; border-radius: var(--r); word-break: break-all; color: var(--accent); border: 1px solid var(--border2); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #10</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Length-Extension vs HMAC</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">A naive MAC constructed as <code>H(k || m)</code> is vulnerable to length-extension attacks if <code>H</code> is a Merkle-Damgård hash. HMAC fixes this using a nested structure: <code>H(k ⊕ opad || H(k ⊕ ipad || m))</code>.</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Original Message</div>
+        <input type="text" id="pt-msg" value="transfer 100">
+      </div>
+      <button class="btn btn-primary" id="btn-mac" style="align-self: flex-end;">▶ Compute MACs</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Naive Hash Panel (Left) -->
+    <div class="card fg attack-panel" style="border-color: rgba(251,191,36,.3);">
+      <div class="fl" style="color:var(--amber)">Naive Hash-MAC: H(k || m)</div>
+      
+      <div class="fg">
+        <div class="fl" style="font-size:9px">Tag t</div>
+        <div class="tag-box" id="naive-t" style="min-height:36px"></div>
+      </div>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Append Suffix</div>
+        <input type="text" id="naive-suffix" value=" to Eve">
+      </div>
+      
+      <button class="btn btn-ghost" id="btn-le-naive" style="margin-top:5px; border-color:var(--amber); color:var(--amber)">Execute Length-Extension</button>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Forged Tag for (m || pad || suffix)</div>
+        <div class="tag-box" id="naive-forge-t" style="min-height:36px; color:var(--text)"></div>
+      </div>
+      
+      <div id="naive-status" class="status" style="display:none; text-align:center"></div>
+    </div>
+
+    <!-- HMAC Panel (Right) -->
+    <div class="card fg attack-panel" style="border-color: rgba(110,231,183,.3);">
+      <div class="fl" style="color:var(--green)">HMAC</div>
+      
+      <div class="fg">
+        <div class="fl" style="font-size:9px">Tag t</div>
+        <div class="tag-box" id="hmac-t" style="min-height:36px"></div>
+      </div>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Append Suffix</div>
+        <input type="text" id="hmac-suffix" value=" to Eve">
+      </div>
+      
+      <button class="btn btn-ghost" id="btn-le-hmac" style="margin-top:5px; border-color:var(--green); color:var(--green)">Attempt Length-Extension</button>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Forged Tag</div>
+        <div class="tag-box" id="hmac-forge-t" style="min-height:36px; color:var(--text)"></div>
+      </div>
+      
+      <div id="hmac-status" class="status" style="display:none; text-align:center"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa10_demo.js"></script>
+</body>
+</html>

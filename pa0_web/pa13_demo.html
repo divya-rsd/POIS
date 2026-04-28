@@ -3,108 +3,62 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PA#13 — Miller-Rabin Primality Tester</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>PA #13 - Miller-Rabin</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <style>
-  .slider-box { display:flex; align-items:center; gap: 10px; margin-top:10px; }
-  .slider-val { font-family:var(--mono); font-weight:bold; width: 30px; text-align:right; }
-  
-  .quick-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .quick-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: 0.2s; }
-  .quick-btn:hover { background: var(--surface); color: var(--text); border-color: var(--accent); }
-  
-  .result-banner { text-align:center; padding: 15px; font-size: 20px; font-weight: bold; border-radius: var(--r2); margin-top: 15px; display:none; }
-  .result-banner.prime { background: rgba(34, 197, 94, 0.1); border: 1px solid var(--green); color: var(--green); }
-  .result-banner.composite { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); color: var(--red); }
-  
-  .trace-container { margin-top: 20px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--surface); display:none; }
-  .trace-header { padding: 10px; background: var(--surface2); cursor: pointer; font-weight: 500; display:flex; justify-content:space-between; }
-  .trace-body { padding: 10px; font-family: var(--mono); font-size: 11px; max-height: 400px; overflow-y: auto; color: var(--text3); display:block; }
-  
-  .trace-round { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border2); }
-  .trace-round:last-child { border-bottom: none; }
-  
-  .lbl { color: var(--text); font-weight: 500; }
-  .val { color: var(--amber); }
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .trace-box { max-height: 250px; overflow-y: auto; background: var(--surface2); padding: 10px; border-radius: var(--r); border: 1px solid var(--border2); font-family: var(--mono); font-size: 10px; color: var(--text2); line-height: 1.6; }
+  .trace-item { border-bottom: 1px dashed var(--border); padding-bottom: 4px; margin-bottom: 4px; }
+  .trace-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .witness { color: var(--accent); }
+  .composite-reason { color: var(--red); }
 </style>
 </head>
 <body>
 
-<!-- ══ TOP BAR ══ -->
 <div class="topbar">
   <div class="logo">
-    <div class="logo-icon" style="background:var(--green); color:#000;">MR</div>
-    <div class="logo-text"> &nbsp;<em>Miller-Rabin</em> Primality Tester</div>
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #13</div>
   </div>
-
   <div class="bar-section">
-    <div class="seg" id="seg-found">
-      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
-    </div>
-  </div>
-
-  <span class="pa-badge" style="background:var(--green); color:#000;">PA #13</span>
-</div>
-
-<!-- ══ HERO STRIP ══ -->
-<div class="hero-strip">
-  <div>
-    <div class="hero-title">Primality <span>Tester</span></div>
-    <div class="hero-sub">Probabilistic primality testing using Miller-Rabin. Watch the algorithm test random witnesses to expose composites.</div>
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
   </div>
 </div>
 
-<!-- ══ MAIN LAYOUT ══ -->
-<div style="padding: 24px; max-width: 800px; margin: 0 auto;">
+<div class="layout-pa">
+  <div class="demo-title">Miller-Rabin Primality Tester</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Test large numbers for primality probabilistically. Demonstrates how pseudoprimes (like Carmichael numbers) are caught.</div>
 
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-title">
-        Miller-Rabin Configuration
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Integer N</div>
+      <input type="text" id="mr-n" value="561" placeholder="Enter integer">
+      <div style="font-size:10px; color:var(--text3); margin-top:4px;">Try a Carmichael number like 561.</div>
+      
+      <div class="fl" style="margin-top: 15px;">Rounds (k): <span id="mr-k-val" style="color:var(--accent)">40</span></div>
+      <div class="slider-container">
+        <input type="range" id="mr-k" min="1" max="100" step="1" value="40">
       </div>
+      
+      <button class="btn btn-primary" id="btn-test" style="margin-top: 20px;">▶ Test Primality</button>
+      
+      <div id="mr-status" class="status" style="display:none; margin-top:20px; text-align:center; font-size: 16px; font-weight: 600;"></div>
+      <div id="mr-time" style="text-align:center; font-size:11px; color:var(--text3); margin-top:5px;"></div>
     </div>
-    <div class="panel-body">
-      
-      <div class="fg">
-        <div class="fl">Enter Integer (n)</div>
-        <input type="text" id="inp-n" value="561" placeholder="Enter a number to test...">
-        <div class="quick-btns">
-            <button class="quick-btn" onclick="document.getElementById('inp-n').value='561'">561 (Carmichael)</button>
-            <button class="quick-btn" onclick="document.getElementById('inp-n').value='7919'">7919 (Prime)</button>
-            <button class="quick-btn" onclick="document.getElementById('inp-n').value='131758509015093557999719114755104618770289456570650992383273181827471900010991'">512-bit (Composite)</button>
-        </div>
+
+    <div class="card fg">
+      <div class="fl" style="margin-bottom: 10px;">Execution Trace & Witnesses</div>
+      <div class="trace-box" id="mr-trace">
+        Waiting for test...
       </div>
-      
-      <div class="fg" style="margin-top:20px;">
-        <div class="fl">Number of Rounds (k)</div>
-        <div class="slider-box">
-            <input type="range" id="inp-k" min="1" max="40" value="5" oninput="document.getElementById('val-k').innerText=this.value">
-            <div class="slider-val" id="val-k">5</div>
-        </div>
-        <div style="color:var(--text3); font-size:11px; margin-top:5px;">
-            Error probability ≤ 4<sup>-k</sup>. For k=40, probability ≈ 10<sup>-24</sup>.
-        </div>
-      </div>
-      
-      <button class="btn btn-primary" style="margin-top: 20px; background: var(--green); color:#000;" onclick="runTest()" id="btn-run">▶ Run Miller-Rabin Test</button>
-      
-      <div class="result-banner" id="result-banner"></div>
-      
-      <div class="trace-container" id="trace-container">
-        <div class="trace-header">
-            <span>Execution Trace (Witnesses & Exponentiation)</span>
-            <span id="trace-time"></span>
-        </div>
-        <div class="trace-body" id="trace-body"></div>
-      </div>
-      
     </div>
   </div>
 
 </div>
 
+<script src="api.js"></script>
 <script src="pa13_demo.js"></script>
 </body>
 </html>

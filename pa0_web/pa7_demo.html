@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #7 - Merkle-Damgård</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .md-chain { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+  .md-step { display: flex; align-items: stretch; background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r); overflow: hidden; }
+  .md-idx { background: var(--surface3); padding: 15px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); color: var(--accent); font-weight: 600; width: 60px; flex-shrink: 0; }
+  .md-content { padding: 15px; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+  .md-content .mono { font-size: 11px; background: var(--bg); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--text); }
+  .arrow-down { text-align: center; color: var(--accent); font-size: 20px; line-height: 1; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #7</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Merkle-Damgård Chain Viewer</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Observe how a variable-length message is padded to a multiple of the block size and processed iteratively through a compression function.</div>
+
+  <div class="card fg">
+    <div class="fl">Input Message</div>
+    <input type="text" id="md-msg" value="Hash me!" placeholder="Type a message to see the chain update...">
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <div class="fl">Hash Computation Chain</div>
+    <div class="md-chain" id="md-chain-container">
+      <div style="padding: 20px; text-align: center; color: var(--text3)">Loading...</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa7_demo.js"></script>
+</body>
+</html>

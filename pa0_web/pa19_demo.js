@@ -1,93 +1,77 @@
-let logDiv;
+let aliceBit = 0;
+let bobBit = 0;
 
-window.onload = () => {
-    logDiv = document.getElementById('chat-log');
-}
+const aliceBtns = document.querySelectorAll('.bit-btn.alice');
+const bobBtns = document.querySelectorAll('.bit-btn.bob');
+const btnEval = document.getElementById('btn-eval');
+const chatLog = document.getElementById('chat-log');
+const statusDiv = document.getElementById('and-status');
 
-function log(msg, cls="log-sys") {
-    const d = document.createElement('div');
-    d.className = `log-entry ${cls}`;
-    d.innerHTML = msg;
-    logDiv.appendChild(d);
-    logDiv.scrollTop = logDiv.scrollHeight;
-}
+aliceBtns.forEach(b => {
+  b.addEventListener('click', () => {
+    aliceBtns.forEach(btn => btn.classList.remove('active'));
+    b.classList.add('active');
+    aliceBit = parseInt(b.getAttribute('data-val'), 10);
+  });
+});
 
-async function computeAND() {
-    const a = parseInt(document.getElementById('inp-a').value);
-    const b = parseInt(document.getElementById('inp-b').value);
-    
-    logDiv.innerHTML = "";
-    document.getElementById('privacy-box').style.display = 'none';
-    document.getElementById('truth-table').style.display = 'none';
-    
-    log(`Alice holds a=${a}. Bob holds b=${b}. Starting Secure AND protocol...`, 'log-sys');
-    
-    try {
-        const res = await fetch('/api/pa19/demo_and', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ a, b })
-        });
-        const data = await res.json();
-        
-        await new Promise(r => setTimeout(r, 600));
-        log(`Alice sets up OT messages (m0=0, m1=${a}).`, 'log-alice');
-        
-        await new Promise(r => setTimeout(r, 600));
-        log(`Bob runs OT receiver step 1 with choice bit b=${b}. Generates (pk0, pk1) and sends to Alice.`, 'log-bob');
-        
-        await new Promise(r => setTimeout(r, 600));
-        log(`Alice runs OT sender step with (0, ${a}). Computes (C0, C1) and sends to Bob.`, 'log-alice');
-        
-        await new Promise(r => setTimeout(r, 600));
-        log(`Bob decrypts C${b} using his secret key.`, 'log-bob');
-        
-        await new Promise(r => setTimeout(r, 600));
-        log(`<b>Result!</b> Bob receives m_b = <span style="color:var(--green); font-size:14px;">${data.res}</span>. Alice outputs the same.`, 'log-sys');
-        
-        // Populate privacy box
-        document.getElementById('transcript-raw').innerText = JSON.stringify(data.transcript, null, 2);
-        document.getElementById('privacy-box').style.display = 'block';
-        
-    } catch(err) {
-        log(`Error: ${err}`, 'log-sys');
-    }
-}
+bobBtns.forEach(b => {
+  b.addEventListener('click', () => {
+    bobBtns.forEach(btn => btn.classList.remove('active'));
+    b.classList.add('active');
+    bobBit = parseInt(b.getAttribute('data-val'), 10);
+  });
+});
 
-async function runTruthTable() {
-    const tableBody = document.getElementById('tt-body');
-    tableBody.innerHTML = "";
-    document.getElementById('truth-table').style.display = 'block';
-    document.getElementById('privacy-box').style.display = 'none';
-    logDiv.innerHTML = "<div class='log-sys'>Running truth table verification...</div>";
+function logSys(msg) { chatLog.innerHTML += `<div class="log-entry log-sys">${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logAlice(msg) { chatLog.innerHTML += `<div class="log-entry log-alice"><b>Alice:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logBob(msg) { chatLog.innerHTML += `<div class="log-entry log-bob"><b>Bob:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+
+btnEval.addEventListener('click', async () => {
+  btnEval.disabled = true;
+  chatLog.innerHTML = '';
+  statusDiv.style.display = 'none';
+  
+  logSys(`Starting Secure AND evaluation...`);
+  
+  try {
+    const res = await Backend.pa19And(aliceBit, bobBit);
     
-    const pairs = [[0,0], [0,1], [1,0], [1,1]];
+    // Simulate steps
+    logAlice(`I have my bit x. I'm generating a random share s_a = ${res.alice_share}.`);
+    logAlice(`My secret is x = ${aliceBit}. I prepare a truth table for OT:`);
+    logAlice(`T[0][0] = (0 AND 0) ⊕ ${res.alice_share} = ${res.T[0][0]}`);
+    logAlice(`T[0][1] = (0 AND 1) ⊕ ${res.alice_share} = ${res.T[0][1]}`);
+    logAlice(`T[1][0] = (1 AND 0) ⊕ ${res.alice_share} = ${res.T[1][0]}`);
+    logAlice(`T[1][1] = (1 AND 1) ⊕ ${res.alice_share} = ${res.T[1][1]}`);
     
-    for (const [a, b] of pairs) {
-        try {
-            const res = await fetch('/api/pa19/demo_and', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ a, b })
-            });
-            const data = await res.json();
-            
-            const expected = a & b;
-            const isCorrect = (data.res === expected);
-            
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${a}</td>
-                <td>${b}</td>
-                <td class="${isCorrect ? 'true' : 'false'}">${data.res}</td>
-                <td>${expected}</td>
-                <td>${isCorrect ? '✓ Pass' : '✗ Fail'}</td>
-            `;
-            tableBody.appendChild(tr);
-        } catch(err) {
-            console.error(err);
-        }
-    }
+    setTimeout(() => {
+      logBob(`I have my bit y = ${bobBit}. I act as the receiver in a 1-out-of-4 Oblivious Transfer.`);
+      logBob(`I request the element at (x=${aliceBit}, y=${bobBit})... wait, I don't know x! I request row x from Alice using OT.`);
+      
+      setTimeout(() => {
+        logSys(`Oblivious Transfer executes...`);
+        logBob(`I received my share s_b = ${res.bob_share} from the OT.`);
+        
+        setTimeout(() => {
+          logSys(`Both parties now hold random shares of the result.`);
+          logAlice(`My final share: ${res.alice_share}`);
+          logBob(`My final share: ${res.bob_share}`);
+          
+          const result = res.alice_share ^ res.bob_share;
+          logSys(`Reconstructing output: s_a ⊕ s_b = ${res.alice_share} ⊕ ${res.bob_share} = ${result}`);
+          
+          statusDiv.style.display = 'block';
+          statusDiv.className = 'status ok';
+          statusDiv.textContent = `RESULT: ${aliceBit} AND ${bobBit} = ${result}`;
+          
+          btnEval.disabled = false;
+        }, 1000);
+      }, 1000);
+    }, 1000);
     
-    log(`Truth table complete. Verified all 4 combinations.`, 'log-sys');
-}
+  } catch(e) {
+    logSys(`Error: ${e.message}`);
+    btnEval.disabled = false;
+  }
+});

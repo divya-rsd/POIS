@@ -1,75 +1,66 @@
-function toggleTrace() {
-    const body = document.getElementById('trace-body');
-    const caret = document.getElementById('trace-caret');
-    if (body.style.display === 'block') {
-        body.style.display = 'none';
-        caret.innerText = '▼';
-    } else {
-        body.style.display = 'block';
-        caret.innerText = '▲';
-    }
-}
+const aliceW = document.getElementById('alice-w');
+const bobW = document.getElementById('bob-w');
+const btnEval = document.getElementById('btn-eval');
+const chatLog = document.getElementById('chat-log');
+const statusDiv = document.getElementById('mpc-status');
 
-async function runMillionaires() {
-    const x = parseInt(document.getElementById('alice-x').value);
-    const y = parseInt(document.getElementById('bob-y').value);
-    const btn = document.getElementById('btn-run');
-    const pbg = document.getElementById('progress-bg');
-    const pfill = document.getElementById('progress-fill');
-    const resBan = document.getElementById('result-banner');
-    const traceCon = document.getElementById('trace-container');
-    const traceBody = document.getElementById('trace-body');
+function logSys(msg) { chatLog.innerHTML += `<div class="log-entry log-sys">${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logAlice(msg) { chatLog.innerHTML += `<div class="log-entry log-alice"><b>Alice:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logBob(msg) { chatLog.innerHTML += `<div class="log-entry log-bob"><b>Bob:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+
+btnEval.addEventListener('click', async () => {
+  const a = parseInt(aliceW.value, 10);
+  const b = parseInt(bobW.value, 10);
+  
+  if(isNaN(a) || isNaN(b) || a < 0 || a > 15 || b < 0 || b > 15) {
+    alert("Please enter values between 0 and 15.");
+    return;
+  }
+  
+  btnEval.disabled = true;
+  chatLog.innerHTML = '';
+  statusDiv.style.display = 'none';
+  
+  logSys(`Starting Yao's Millionaires' Protocol for values A=${a}, B=${b} (max 4-bits)`);
+  
+  try {
+    const res = await Backend.pa20Millionaire(a, b);
     
-    btn.disabled = true;
-    resBan.style.display = 'none';
-    traceCon.style.display = 'none';
-    traceBody.innerHTML = '';
+    // Simulate steps
+    logAlice(`I generated a Garbled Circuit for the function (A > B).`);
+    logAlice(`I encode my input A=${a} into wire labels.`);
     
-    pbg.style.display = 'block';
-    pfill.style.width = '0%';
+    setTimeout(() => {
+      logAlice(`Sending Garbled Circuit and my encoded inputs to Bob...`);
+      
+      setTimeout(() => {
+        logBob(`Received circuit. Now I need the wire labels for my input B=${b}.`);
+        logBob(`Initiating Oblivious Transfer to securely retrieve my labels from Alice without revealing B...`);
+        
+        setTimeout(() => {
+          logSys(`OT complete. Bob has his labels.`);
+          logBob(`Evaluating the Garbled Circuit using the provided labels...`);
+          
+          setTimeout(() => {
+            logSys(`Circuit evaluation complete.`);
+            logBob(`The result output label corresponds to: ${res.alice_is_richer ? 'True' : 'False'}`);
+            
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'status ok';
+            if (res.alice_is_richer) {
+              statusDiv.textContent = `RESULT: Alice is richer! (${a} > ${b})`;
+            } else {
+              statusDiv.textContent = `RESULT: Bob is richer (or equal)! (${a} <= ${b})`;
+            }
+            
+            btnEval.disabled = false;
+          }, 1000);
+        }, 1000);
+      }, 1000);
+    }, 1000);
     
-    try {
-        const res = await fetch('/api/pa20/millionaires', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ x, y })
-        });
-        const data = await res.json();
-        
-        // Animate the trace to simulate gate-by-gate evaluation
-        const trace = data.trace || [];
-        const totalGates = trace.length;
-        
-        for (let i = 0; i < totalGates; i++) {
-            const gate = trace[i];
-            
-            // Render gate into trace body
-            const div = document.createElement('div');
-            div.className = 'trace-gate';
-            div.innerHTML = `[Wire ${gate.output_wire}] = <span class="op-${gate.op}">${gate.op}</span>(wires: [${gate.inputs.join(', ')}]) ➔ <span style="color:#fff">${gate.output_val}</span>`;
-            traceBody.appendChild(div);
-            
-            // Update progress
-            const pct = Math.round(((i + 1) / totalGates) * 100);
-            pfill.style.width = `${pct}%`;
-            
-            // Auto scroll trace
-            traceBody.scrollTop = traceBody.scrollHeight;
-            
-            // Wait 15ms per gate for a fast but visible animation
-            await new Promise(r => setTimeout(r, 15));
-        }
-        
-        // Show result
-        pbg.style.display = 'none';
-        resBan.innerText = data.result;
-        resBan.style.display = 'block';
-        traceCon.style.display = 'block';
-        
-    } catch(err) {
-        console.error(err);
-        alert("Backend connection failed.");
-    } finally {
-        btn.disabled = false;
-    }
-}
+  } catch(e) {
+    logSys(`Error: ${e.message}`);
+    btnEval.disabled = false;
+  }
+});

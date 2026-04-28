@@ -3,154 +3,70 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PA#15 — Digital Signatures</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>PA #15 - Digital Signatures</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <style>
-  .mono-box { font-family: var(--mono); font-size: 11px; background: var(--surface2); padding: 10px; border-radius: var(--r2); word-break: break-all; color: var(--amber); margin-top: 5px; border: 1px solid var(--border2); min-height: 40px;}
-  .banner { padding: 15px; font-size: 16px; font-weight: bold; border-radius: var(--r2); margin-top: 15px; display:none; text-align:center; }
-  .banner.success { background: rgba(34, 197, 94, 0.1); border: 1px solid var(--green); color: var(--green); }
-  .banner.fail { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); color: var(--red); }
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .sig-blob { font-family: var(--mono); font-size: 11px; background: var(--surface3); padding: 10px; border-radius: var(--r); word-break: break-all; color: var(--accent); border: 1px solid var(--border2); min-height: 80px; }
+  .btn-flip { padding: 4px 8px; font-size: 10px; margin-top: 5px; background: transparent; border: 1px dashed var(--text3); color: var(--text3); border-radius: var(--r); cursor: pointer; transition: var(--t); }
+  .btn-flip:hover { border-color: var(--accent); color: var(--accent); background: var(--surface2); }
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <div class="logo">
-    <div class="logo-icon" style="background:#8b5cf6; color:#fff;">DS</div>
-    <div class="logo-text"> &nbsp;<em>Digital</em> Signatures</div>
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #15</div>
   </div>
   <div class="bar-section">
-    <div class="seg" id="seg-found">
-      <button class="on" onclick="window.location.href='index.html'">← Back</button>
-    </div>
-  </div>
-  <span class="pa-badge" style="background:#8b5cf6; color:#fff;">PA #15</span>
-</div>
-
-<div class="hero-strip">
-  <div>
-    <div class="hero-title">Sign and <span>Verify Live</span></div>
-    <div class="hero-sub">Generate EUF-CMA secure digital signatures using RSA and Hash-then-Sign. See how tampering or Raw RSA (no hash) breaks security.</div>
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
   </div>
 </div>
 
-<div style="padding: 24px; max-width: 800px; margin: 0 auto;">
-  
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-title">Signer's Portal (Alice)</div>
-    </div>
-    <div class="panel-body">
+<div class="layout-pa">
+  <div class="demo-title">Digital Signatures</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Sign a document using RSA-PSS or Textbook RSA. Verify the signature, then tamper with the document or the signature to see how the verification fails.</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Document to Sign</div>
+        <input type="text" id="sig-msg" value="I agree to pay 100 USD.">
+      </div>
       <div class="fg">
-        <div class="fl">Message to Sign</div>
-        <input type="text" id="inp-m" value="Pay Bob $100">
+        <div class="fl" style="margin-bottom:5px">Mode</div>
+        <select id="sig-mode" style="height:34px; background:var(--surface); color:var(--text); border:1px solid var(--border2); border-radius:4px; padding:0 10px; font-family:var(--mono); font-size:12px;">
+          <option value="pss">RSA-PSS (Secure)</option>
+          <option value="textbook">Textbook RSA (Insecure)</option>
+        </select>
       </div>
-      
-      <div style="margin-top: 15px; display:flex; align-items:center; gap:10px;">
-        <input type="checkbox" id="chk-raw">
-        <label for="chk-raw" style="font-weight:500; cursor:pointer;">Use Raw RSA (No Hash) - Vulnerable to forgery</label>
-      </div>
-      
-      <button class="btn btn-primary" style="margin-top: 15px; background:#8b5cf6;" onclick="signMessage()" id="btn-sign">✍️ Sign Message</button>
-      
-      <div style="margin-top:20px; display:none;" id="sig-panel">
-        <div class="fl">Digital Signature (σ)</div>
-        <div class="mono-box" id="out-sig"></div>
-        <button class="btn" style="margin-top: 10px;" onclick="tamperMessage()">🔨 Tamper (Flip Bit in Message)</button>
-      </div>
+      <button class="btn btn-primary" id="btn-sign" style="align-self: flex-end;">▶ Sign Document</button>
     </div>
   </div>
 
-  <div class="panel" style="margin-top:20px;">
-    <div class="panel-head">
-      <div class="panel-title">Verifier's Portal (Bob / Bank)</div>
-    </div>
-    <div class="panel-body">
-      <button class="btn btn-primary" style="background:var(--surface2); color:var(--text); border:1px solid var(--border);" onclick="verifySignature()" id="btn-verify">🛡️ Verify Signature</button>
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Signature Blob (Hex)</div>
+      <div class="sig-blob" id="sig-out">Waiting for signature...</div>
       
-      <div id="verify-details" style="display:none; margin-top:20px; border-top:1px dashed var(--border); padding-top:15px;">
-        <div style="display:flex; gap:20px;">
-            <div style="flex:1;">
-                <div class="fl">Expected Hash / Payload</div>
-                <div class="mono-box" id="v-exp" style="color:var(--text3); min-height:20px;"></div>
-            </div>
-            <div style="flex:1;">
-                <div class="fl">Recovered (σ<sup>e</sup> mod N)</div>
-                <div class="mono-box" id="v-rec" style="color:var(--text3); min-height:20px;"></div>
-            </div>
-        </div>
-        <div class="banner" id="banner-verify"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn-flip" id="btn-flip-sig">Tamper Signature</button>
+        <button class="btn-flip" id="btn-flip-msg">Tamper Document</button>
       </div>
+    </div>
+
+    <div class="card fg" style="display:flex; flex-direction:column; justify-content:center;">
+      <div class="fl" style="text-align:center; margin-bottom:15px">Verification</div>
+      <button class="btn" id="btn-verify" style="align-self: center; min-width:200px">Verify Signature</button>
+      <div id="verify-status" class="status" style="display:none; margin-top:15px; text-align:center"></div>
     </div>
   </div>
 
 </div>
 
-<script>
-let currentSig = null;
-
-async function signMessage() {
-    const m = document.getElementById('inp-m').value;
-    const raw = document.getElementById('chk-raw').checked;
-    if (!m) return;
-    
-    try {
-        const res = await fetch('/api/pa15/sign', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ m: m, raw: raw })
-        });
-        const data = await res.json();
-        currentSig = data.sig;
-        document.getElementById('out-sig').innerText = currentSig;
-        document.getElementById('sig-panel').style.display = 'block';
-        document.getElementById('verify-details').style.display = 'none';
-    } catch(err) {
-        alert("Failed to sign");
-    }
-}
-
-function tamperMessage() {
-    const inp = document.getElementById('inp-m');
-    inp.value = inp.value + " (Tampered!)";
-    document.getElementById('verify-details').style.display = 'none';
-    alert("Message tampered. Now try verifying it!");
-}
-
-async function verifySignature() {
-    const m = document.getElementById('inp-m').value;
-    const raw = document.getElementById('chk-raw').checked;
-    
-    if (!currentSig) return alert("Please sign a message first.");
-    
-    try {
-        const res = await fetch('/api/pa15/verify', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ m: m, sig: currentSig, raw: raw })
-        });
-        const data = await res.json();
-        
-        document.getElementById('v-exp').innerText = data.expected;
-        document.getElementById('v-rec').innerText = data.recovered;
-        
-        const banner = document.getElementById('banner-verify');
-        if (data.valid) {
-            banner.className = 'banner success';
-            banner.innerHTML = '✅ Signature Valid (Authenticated & Intact)';
-        } else {
-            banner.className = 'banner fail';
-            banner.innerHTML = '🚨 Signature INVALID (Tampered or Forged)';
-        }
-        banner.style.display = 'block';
-        document.getElementById('verify-details').style.display = 'block';
-        
-    } catch(err) {
-        alert("Verification failed");
-    }
-}
-</script>
+<script src="api.js"></script>
+<script src="pa15_demo.js"></script>
 </body>
 </html>

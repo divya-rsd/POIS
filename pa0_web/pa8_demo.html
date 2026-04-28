@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #8 - DLP CRHF</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .prog-bar-container { width: 100%; height: 8px; background: var(--surface3); border-radius: 4px; overflow: hidden; margin-top: 10px; position: relative;}
+  .prog-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+  .collision-box { border: 1px solid var(--red); background: var(--red-dim); padding: 15px; border-radius: var(--r2); margin-top: 20px; display: none;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #8</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Discrete Log Collision-Resistant Hash Function</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Observe a hashing algorithm whose collision resistance relies on the hardness of the Discrete Logarithm Problem. Find collisions on a truncated toy version via the Birthday Attack.</div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Hash Computation</div>
+      <input type="text" id="dlp-msg" value="Hello DLP" placeholder="Message">
+      <button class="btn btn-ghost btn-sm" id="btn-hash" style="margin-top:10px">Compute Hash</button>
+      
+      <div class="fl" style="margin-top: 15px;">Output Hash (Hex)</div>
+      <textarea id="dlp-out" class="mono" style="width:100%; height:80px; resize:none; background:var(--bg);" readonly></textarea>
+    </div>
+
+    <div class="card fg">
+      <div class="fl">Collision Hunt (Birthday Attack)</div>
+      <div style="font-size: 11px; color:var(--text2); margin-top:5px; margin-bottom:10px">
+        Hunting on a truncated 16-bit hash. By the Birthday Paradox, we expect a collision in roughly 2^(16/2) = 2^8 = 256 attempts.
+      </div>
+      
+      <button class="btn btn-primary" id="btn-hunt">▶ Start Hunt</button>
+      
+      <div class="prog-bar-container" id="prog-cont" style="display:none">
+        <div class="prog-bar" id="prog-bar"></div>
+      </div>
+      <div class="fl" id="hunt-status" style="margin-top: 5px; text-align:right"></div>
+
+      <div class="collision-box" id="col-box">
+        <div class="fl" style="color:var(--red); font-size: 14px; margin-bottom: 10px;">Collision Found!</div>
+        <div class="fg">
+          <div class="fl">Message 1</div>
+          <div class="mono" id="col-m1" style="background:var(--bg); color:var(--text)"></div>
+        </div>
+        <div class="fg" style="margin-top:10px">
+          <div class="fl">Message 2</div>
+          <div class="mono" id="col-m2" style="background:var(--bg); color:var(--text)"></div>
+        </div>
+        <div class="fg" style="margin-top:10px">
+          <div class="fl">Same Hash Output</div>
+          <div class="mono" id="col-hash" style="background:var(--bg); color:var(--red); border-color:var(--red)"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="pa8_demo.js"></script>
+</body>
+</html>

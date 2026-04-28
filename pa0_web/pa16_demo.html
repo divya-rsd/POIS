@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #16 - ElGamal</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .actor-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r2); padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; transition: var(--t); }
+  .actor-name { font-family: var(--display); font-size: 20px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 5px; }
+  .actor-name.eve { color: var(--red); }
+  .eve-panel { border-color: rgba(248,113,113,.3); background: var(--red-dim); }
+  .cipher-val { font-family: var(--mono); font-size: 11px; background: var(--bg); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); word-break: break-all; min-height: 28px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #16</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">ElGamal Malleability</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">ElGamal is homomorphic over multiplication. If Eve intercepts E(m), she can compute E(m * k) without knowing m or the private key!</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Original Message (m)</div>
+        <input type="number" id="elg-m" value="100">
+      </div>
+      <button class="btn btn-primary" id="btn-enc" style="align-self: flex-end;">▶ Encrypt E(m)</button>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 15px; align-items: stretch;">
+    
+    <!-- Alice -->
+    <div class="actor-panel">
+      <div class="actor-name">Alice (Sender)</div>
+      <div class="fl" style="font-size:9px">Ciphertext (c1, c2)</div>
+      <div class="cipher-val" id="alice-ct">Waiting for encryption...</div>
+    </div>
+    
+    <!-- Eve -->
+    <div class="actor-panel eve-panel">
+      <div class="actor-name eve">Eve (Attacker)</div>
+      
+      <div class="fl" style="font-size:9px; color:var(--red)">Multiply m by factor k</div>
+      <input type="number" id="elg-k" value="5">
+      
+      <button class="btn btn-ghost" id="btn-mal" style="border-color:var(--red); color:var(--red); margin-top:10px;">Execute Homomorphic Attack</button>
+      
+      <div class="fl" style="font-size:9px; color:var(--red); margin-top:10px">Forged Ciphertext (c1, c2')</div>
+      <div class="cipher-val" id="eve-ct" style="border-color:var(--red)"></div>
+    </div>
+    
+    <!-- Bob -->
+    <div class="actor-panel">
+      <div class="actor-name">Bob (Receiver)</div>
+      
+      <button class="btn" id="btn-dec" style="margin-bottom: 10px;">Decrypt Received</button>
+      
+      <div class="fl" style="font-size:9px;">Decrypted Message</div>
+      <div class="cipher-val" id="bob-dec" style="color:var(--accent); font-weight:600; font-size:14px; min-height: 32px"></div>
+    </div>
+    
+  </div>
+  
+  <div id="elg-status" class="status" style="display:none; margin-top:20px; text-align:center"></div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa16_demo.js"></script>
+</body>
+</html>

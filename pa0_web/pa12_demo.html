@@ -3,110 +3,79 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PA#12 — Textbook RSA & PKCS#1 v1.5 Demo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>PA #12 - Textbook RSA</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <style>
-  .mode-tabs { display: flex; border-bottom: 1px solid var(--border2); margin-bottom: 20px; }
-  .tab { padding: 10px 20px; cursor: pointer; color: var(--text3); border-bottom: 2px solid transparent; }
-  .tab.active { color: var(--text); border-bottom: 2px solid var(--accent); font-weight: 500; }
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+  .tab { padding: 8px 16px; cursor: pointer; border-radius: var(--r); transition: var(--t); font-family: var(--mono); font-size: 12px; }
+  .tab.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(78,205,196,.3); }
   
   .cipher-box { background: var(--surface2); padding: 10px; border-radius: var(--r2); font-family: var(--mono); font-size: 11px; word-break: break-all; margin-top: 5px; border: 1px solid var(--border2); min-height: 40px; color: var(--text2); }
-  
-  .banner { padding: 12px; border-radius: var(--r2); font-weight: 500; text-align: center; margin-top: 15px; display: none; }
-  .banner.red { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); color: var(--red); }
-  .banner.green { background: rgba(34, 197, 94, 0.1); border: 1px solid var(--green); color: var(--green); }
-  
-  .pad-box { display: flex; gap: 10px; margin-top: 10px; }
-  .pad-col { flex: 1; }
   .pad-bytes { background: var(--surface2); padding: 5px; font-family: var(--mono); font-size: 11px; border: 1px dashed var(--border); color: var(--amber); word-break: break-all; }
 </style>
 </head>
 <body>
 
-<!-- ══ TOP BAR ══ -->
 <div class="topbar">
   <div class="logo">
-    <div class="logo-icon">RSA</div>
-    <div class="logo-text"> &nbsp;<em>Determinism Attack</em> Demo</div>
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #12</div>
   </div>
-
   <div class="bar-section">
-    <div class="seg" id="seg-found">
-      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
-    </div>
-  </div>
-
-  <span class="pa-badge">PA #12</span>
-</div>
-
-<!-- ══ HERO STRIP ══ -->
-<div class="hero-strip">
-  <div>
-    <div class="hero-title">Textbook RSA <span>vs PKCS#1 v1.5</span></div>
-    <div class="hero-sub">Demonstrating why deterministic encryption breaks CPA security. Encrypt the same message twice and observe the ciphertexts.</div>
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
   </div>
 </div>
 
-<!-- ══ MAIN LAYOUT ══ -->
-<div style="padding: 24px; max-width: 800px; margin: 0 auto;">
+<div class="layout-pa">
+  <div class="demo-title">Textbook RSA vs PKCS#1 v1.5</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Demonstrating why deterministic encryption breaks CPA security. Encrypt the same message twice and observe if the ciphertexts match.</div>
 
-  <div class="mode-tabs">
-    <div class="tab active" id="tab-textbook" onclick="setMode('textbook')">Textbook RSA</div>
-    <div class="tab" id="tab-pkcs" onclick="setMode('pkcs15')">PKCS#1 v1.5 Padding</div>
+  <div class="tabs">
+    <div class="tab active" data-mode="textbook">Textbook RSA</div>
+    <div class="tab" data-mode="pkcs">PKCS#1 v1.5 Padding</div>
   </div>
 
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-title">
-        Determinism Test
+  <div class="card fg">
+    <div class="fl">Short Message</div>
+    <input type="text" id="inp-msg" value="ATTACK" placeholder="e.g. yes or no">
+    
+    <button class="btn btn-primary" id="btn-enc" style="margin-top: 15px;">▶ Encrypt Twice</button>
+    <div id="status-box" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+    
+    <div class="grid-2" style="margin-top: 20px;">
+      <div>
+        <div class="fl">Ciphertext 1 (C1)</div>
+        <div class="cipher-box" id="box-c1"></div>
+      </div>
+      <div>
+        <div class="fl">Ciphertext 2 (C2)</div>
+        <div class="cipher-box" id="box-c2"></div>
       </div>
     </div>
-    <div class="panel-body">
-      
-      <div class="fg">
-        <div class="fl">Short Message (e.g. "yes" or "no")</div>
-        <input type="text" id="inp-msg" value="yes">
-      </div>
-      
-      <button class="btn btn-primary" style="margin-top: 15px;" onclick="encryptTwice()" id="btn-enc">▶ Encrypt Twice</button>
-      
-      <div class="banner" id="banner-status"></div>
-      
-      <div style="margin-top: 20px; display:flex; gap:20px;">
-        <div style="flex:1;">
-            <div class="fl">Ciphertext 1 (C1)</div>
-            <div class="cipher-box" id="box-c1"></div>
+    
+    <div id="padding-panel" style="display:none; margin-top: 20px; border-top: 1px dashed var(--border); padding-top: 15px;">
+      <div class="fl" style="margin-bottom: 5px; color:var(--amber)">Extracted PS (Padding) Bytes</div>
+      <div class="grid-2">
+        <div>
+          <div style="font-size:11px; color:var(--text3);">From C1:</div>
+          <div class="pad-bytes" id="pad-ps1"></div>
         </div>
-        <div style="flex:1;">
-            <div class="fl">Ciphertext 2 (C2)</div>
-            <div class="cipher-box" id="box-c2"></div>
+        <div>
+          <div style="font-size:11px; color:var(--text3);">From C2:</div>
+          <div class="pad-bytes" id="pad-ps2"></div>
         </div>
       </div>
-      
-      <div id="padding-panel" style="display:none; margin-top: 20px; border-top: 1px dashed var(--border); padding-top: 15px;">
-        <div class="fl" style="margin-bottom: 5px;">Extracted PS (Padding) Bytes</div>
-        <div class="pad-box">
-            <div class="pad-col">
-                <div style="font-size:11px; color:var(--text3);">From C1:</div>
-                <div class="pad-bytes" id="pad-ps1"></div>
-            </div>
-            <div class="pad-col">
-                <div style="font-size:11px; color:var(--text3);">From C2:</div>
-                <div class="pad-bytes" id="pad-ps2"></div>
-            </div>
-        </div>
-        <div style="font-size:11px; color:var(--text3); margin-top:8px;">
-            Notice how the randomly generated bytes injected during padding ensure the entire ciphertext diverges.
-        </div>
+      <div style="font-size:11px; color:var(--text3); margin-top:8px;">
+          The randomly generated bytes injected during padding ensure the entire ciphertext diverges.
       </div>
-      
     </div>
-  </div>
 
+  </div>
 </div>
 
+<script src="api.js"></script>
 <script src="pa12_demo.js"></script>
 </body>
 </html>

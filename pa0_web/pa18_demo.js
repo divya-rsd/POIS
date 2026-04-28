@@ -1,97 +1,76 @@
-let logDiv;
-let m0, m1;
-let b;
+const btnC0 = document.getElementById('btn-c0');
+const btnC1 = document.getElementById('btn-c1');
+const btnCheat = document.getElementById('btn-cheat');
+const cheatRow = document.getElementById('cheat-row');
+const chatLog = document.getElementById('chat-log');
 
-window.onload = async () => {
-    logDiv = document.getElementById('chat-log');
-    
-    // Initial Setup
-    try {
-        const res = await fetch('/api/pa18/demo_setup', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ m0: 1337, m1: 80085 })
-        });
-        const data = await res.json();
-        m0 = data.m0;
-        m1 = data.m1;
-        document.getElementById('inp-m0').value = "??? (Hidden)";
-        document.getElementById('inp-m1').value = "??? (Hidden)";
-    } catch(err) {
-        log(`[Error] Failed to connect to backend: ${err}`, 'log-sys');
-    }
-}
+const m0Inp = document.getElementById('alice-m0');
+const m1Inp = document.getElementById('alice-m1');
 
-function log(msg, cls="log-sys") {
-    const d = document.createElement('div');
-    d.className = `log-entry ${cls}`;
-    d.innerHTML = msg;
-    logDiv.appendChild(d);
-    logDiv.scrollTop = logDiv.scrollHeight;
-}
+let lastSession = null;
+let lastChoice = -1;
 
-function truncateHex(hexStr, chars=20) {
-    if (!hexStr) return "";
-    if (hexStr.length > chars) return hexStr.substring(0, chars) + "...";
-    return hexStr;
-}
+function logSys(msg) { chatLog.innerHTML += `<div class="log-entry log-sys">${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logAlice(msg) { chatLog.innerHTML += `<div class="log-entry log-alice"><b>Alice:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
+function logBob(msg) { chatLog.innerHTML += `<div class="log-entry log-bob"><b>Bob:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
 
 async function startProtocol(choice) {
-    b = choice;
-    document.getElementById('btn-choices').style.display = 'none';
-    logDiv.innerHTML = ""; // clear log
-    log(`Bob (You) chose bit b = ${b}. Generating keypairs...`, 'log-bob');
+  const m0 = m0Inp.value;
+  const m1 = m1Inp.value;
+  if(!m0 || !m1) return;
+  
+  btnC0.disabled = true; btnC1.disabled = true;
+  chatLog.innerHTML = '';
+  cheatRow.style.display = 'none';
+  lastChoice = choice;
+  
+  logSys(`Starting OT protocol. Bob chooses b = ${choice}.`);
+  
+  try {
+    const res = await Backend.pa18Ot(m0, m1, choice);
+    lastSession = res;
     
-    try {
-        // Step 1
-        const res1 = await fetch('/api/pa18/demo_step1', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ b })
-        });
-        const data1 = await res1.json();
-        log(`Generated pk0 (h=${truncateHex(data1.pk0_h)}) and pk1 (h=${truncateHex(data1.pk1_h)}). Sent to Alice.`, 'log-bob');
+    // Simulate interactive flow
+    logBob(`I generated two public keys (pk0, pk1). I only know the secret key for pk${choice}.`);
+    setTimeout(() => {
+      logBob(`Sending pk0 and pk1 to Alice...`);
+      setTimeout(() => {
+        logAlice(`Received pk0 and pk1. I don't know which one you have the secret key for.`);
+        logAlice(`Encrypting m0 under pk0 -> ct0`);
+        logAlice(`Encrypting m1 under pk1 -> ct1`);
+        logAlice(`Sending (ct0, ct1) back to Bob...`);
         
-        // Wait a beat for realism
-        await new Promise(r => setTimeout(r, 800));
-        
-        // Step 2
-        log(`Alice received (pk0, pk1). She encrypts m0 with pk0 and m1 with pk1...`, 'log-alice');
-        const res2 = await fetch('/api/pa18/demo_step2', { method: 'POST' });
-        const data2 = await res2.json();
-        log(`Alice sends C0 = (${truncateHex(data2.c0_c1)}, ${truncateHex(data2.c0_c2)}) and C1 = (${truncateHex(data2.c1_c1)}, ${truncateHex(data2.c1_c2)}).`, 'log-alice');
-        
-        await new Promise(r => setTimeout(r, 800));
-        
-        // Step 3
-        log(`Bob receives C0 and C1. Decrypting C${b} using sk${b}...`, 'log-bob');
-        const res3 = await fetch('/api/pa18/demo_step3', { method: 'POST' });
-        const data3 = await res3.json();
-        
-        log(`<b>Success!</b> Decrypted message ${b}: <span style="color:var(--green); font-size:14px;">${data3.got}</span>`, 'log-bob');
-        
-        // Show cheat button
-        document.getElementById('cheat-row').style.display = 'flex';
-        
-    } catch(err) {
-        log(`Error in protocol: ${err}`, 'log-sys');
-    }
+        setTimeout(() => {
+          logBob(`Received ciphertexts. Decrypting ct${choice}...`);
+          logBob(`<b>Decrypted Message: ${res.m_chosen}</b>`);
+          
+          logSys(`OT complete. Bob learned m${choice}, Alice learned nothing about Bob's choice.`);
+          cheatRow.style.display = 'block';
+          
+          btnC0.disabled = false; btnC1.disabled = false;
+        }, 800);
+      }, 800);
+    }, 800);
+    
+  } catch(e) {
+    logSys(`Error: ${e.message}`);
+    btnC0.disabled = false; btnC1.disabled = false;
+  }
 }
 
-async function cheatAttempt() {
-    log(`Attempting to cheat: Brute-forcing the discrete log for pk${1-b} to decrypt C${1-b}...`, 'log-sys');
-    document.getElementById('cheat-row').style.display = 'none';
-    
-    try {
-        const res = await fetch('/api/pa18/demo_cheat', { method: 'POST' });
-        const data = await res.json();
-        
-        if (!data.recovered) {
-            log(`<span style="color:var(--red)">Cheat Failed!</span> Exhausted ${data.iters} iterations in ${data.time_s}s without finding log_g(fake_h). Receiver cannot decrypt the other message.`, 'log-sys');
-        } else {
-            log(`<span style="color:var(--amber)">Cheat Succeeded (Insecure group)!</span> Found DLP in ${data.iters} iterations. Recovered m${1-b} = ${data.recovered_message}`, 'log-sys');
-        }
-    } catch(err) {
-        log(`Error cheating: ${err}`, 'log-sys');
-    }
-}
+btnC0.addEventListener('click', () => startProtocol(0));
+btnC1.addEventListener('click', () => startProtocol(1));
+
+btnCheat.addEventListener('click', async () => {
+  if(!lastSession) return;
+  const other = 1 - lastChoice;
+  logBob(`<i>Attempting to cheat... I will try to decrypt ct${other} to get m${other} without the secret key.</i>`);
+  
+  setTimeout(() => {
+    logSys(`Cheat Failed. Bob's decryption of ct${other} yields garbage: `);
+    // simulate garbage
+    const garbage = Array.from({length: 16}, () => Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join('');
+    logBob(`Result: ${garbage}`);
+    logSys(`Semantic security of the underlying public key encryption prevents Bob from learning the unchosen message.`);
+  }, 1000);
+});

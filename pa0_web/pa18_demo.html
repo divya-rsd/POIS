@@ -3,13 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PA#18 — Oblivious Transfer Demo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>PA #18 - Oblivious Transfer</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <style>
-  .greyed-out { opacity: 0.6; pointer-events: none; }
-  .chat-log { background: var(--surface2); border-radius: var(--r2); padding: 10px; min-height: 150px; max-height: 400px; overflow-y: auto; font-family: var(--mono); font-size: 11px; margin-top: 15px; border: 1px solid var(--border2); }
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .actor-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r2); padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .actor-name { font-family: var(--display); font-size: 20px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 5px; }
+  .actor-name.bob { color: var(--purple); }
+  .bob-panel { border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.05); }
+  
+  .chat-log { background: var(--bg); border-radius: var(--r); padding: 10px; min-height: 150px; max-height: 300px; overflow-y: auto; font-family: var(--mono); font-size: 11px; margin-top: 15px; border: 1px solid var(--border2); }
   .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
   .log-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
   .log-alice { color: var(--accent); }
@@ -19,88 +23,65 @@
 </head>
 <body>
 
-<!-- ══ TOP BAR ══ -->
 <div class="topbar">
   <div class="logo">
-    <div class="logo-icon">OT</div>
-    <div class="logo-text"> &nbsp;<em>Bellare-Micali</em> Interactive Demo</div>
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #18</div>
   </div>
-
   <div class="bar-section">
-    <div class="seg" id="seg-found">
-      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
-    </div>
-  </div>
-
-  <span class="pa-badge">PA #18</span>
-</div>
-
-<!-- ══ HERO STRIP ══ -->
-<div class="hero-strip">
-  <div>
-    <div class="hero-title">1-out-of-2 <span>Oblivious Transfer</span></div>
-    <div class="hero-sub">Play as Bob. Choose which message to learn without Alice knowing your choice, and without you learning the other message.</div>
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
   </div>
 </div>
 
-<!-- ══ TWO-COLUMN MAIN ══ -->
-<div class="layout" style="min-height: calc(100vh - 200px);">
+<div class="layout-pa">
+  <div class="demo-title">1-out-of-2 Oblivious Transfer</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Play as Bob. Choose which of Alice's two messages to learn. Alice won't know which one you picked, and you won't be able to decrypt the other one.</div>
 
-  <!-- PANEL 1 — ALICE (SENDER) -->
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-leg" style="--accent:var(--accent);"><div class="leg-indicator" style="background:var(--accent);box-shadow:0 0 6px var(--accent);"></div> SENDER</div>
-      <div class="panel-title">
-        Alice's Panel
-      </div>
-    </div>
-    <div class="panel-body greyed-out" id="alice-panel">
-
+  <div style="display: flex; gap: 15px; align-items: stretch;">
+    
+    <!-- Alice -->
+    <div class="actor-panel">
+      <div class="actor-name">Alice (Sender)</div>
+      
       <div class="fg">
-        <div class="fl">Message 0 (Hidden)</div>
-        <input type="text" id="inp-m0" value="???" readonly>
-      </div>
-
-      <div class="fg">
-        <div class="fl">Message 1 (Hidden)</div>
-        <input type="text" id="inp-m1" value="???" readonly>
+        <div class="fl" style="font-size:9px">Message 0</div>
+        <input type="text" id="alice-m0" value="Top Secret Plan A">
       </div>
       
-      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
-        Alice holds two messages and will encrypt both, sending them to Bob. She learns nothing about Bob's choice.
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Message 1</div>
+        <input type="text" id="alice-m1" value="Top Secret Plan B">
       </div>
-
-    </div>
-  </div>
-
-  <!-- PANEL 2 — BOB (RECEIVER) -->
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-leg" style="--accent:var(--purple);"><div class="leg-indicator" style="background:var(--purple);box-shadow:0 0 6px var(--purple);"></div> RECEIVER (YOU)</div>
-      <div class="panel-title">
-        Bob's Panel
+      
+      <div style="color:var(--text3); font-size:11px; margin-top:15px; line-height:1.4">
+        Alice has two secrets. She encrypts both using Bob's public keys. Bob generates these keys such that he only knows the private key for the one he chose.
       </div>
     </div>
-    <div class="panel-body">
-
+    
+    <!-- Bob -->
+    <div class="actor-panel bob-panel">
+      <div class="actor-name bob">Bob (Receiver - YOU)</div>
+      
+      <div class="fl" style="font-size:9px; color:var(--purple); margin-bottom:5px">Select which message to retrieve</div>
       <div class="row" id="btn-choices">
-        <button class="btn btn-primary" onclick="startProtocol(0)">▶ Choose m0</button>
-        <button class="btn btn-primary" style="background:var(--purple); border-color:var(--purple);" onclick="startProtocol(1)">▶ Choose m1</button>
+        <button class="btn btn-primary" id="btn-c0">▶ Choose m0</button>
+        <button class="btn btn-primary" id="btn-c1" style="background:var(--purple); border-color:var(--purple); box-shadow:0 0 10px rgba(167,139,250,.3)">▶ Choose m1</button>
       </div>
       
-      <div id="cheat-row" class="row" style="display:none; margin-top: 15px;">
-        <button class="btn btn-ghost" style="color:var(--amber); border-color:var(--amber);" onclick="cheatAttempt()">⚡ Cheat attempt (Decrypt other message)</button>
+      <div id="cheat-row" style="display:none; margin-top: 15px;">
+        <button class="btn btn-ghost" id="btn-cheat" style="border-color:var(--amber); color:var(--amber); width:100%">⚡ Try to decrypt the other message</button>
       </div>
 
       <div class="chat-log" id="chat-log">
         <div class="log-sys">Waiting for you to make a choice...</div>
       </div>
-
     </div>
+    
   </div>
 
 </div>
 
+<script src="api.js"></script>
 <script src="pa18_demo.js"></script>
 </body>
 </html>
