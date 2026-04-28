@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA#18 — Oblivious Transfer Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .greyed-out { opacity: 0.6; pointer-events: none; }
+  .chat-log { background: var(--surface2); border-radius: var(--r2); padding: 10px; min-height: 150px; max-height: 400px; overflow-y: auto; font-family: var(--mono); font-size: 11px; margin-top: 15px; border: 1px solid var(--border2); }
+  .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  .log-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .log-alice { color: var(--accent); }
+  .log-bob { color: var(--purple); }
+  .log-sys { color: var(--text3); font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">OT</div>
+    <div class="logo-text"> &nbsp;<em>Bellare-Micali</em> Interactive Demo</div>
+  </div>
+
+  <div class="bar-section">
+    <div class="seg" id="seg-found">
+      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
+    </div>
+  </div>
+
+  <span class="pa-badge">PA #18</span>
+</div>
+
+<!-- ══ HERO STRIP ══ -->
+<div class="hero-strip">
+  <div>
+    <div class="hero-title">1-out-of-2 <span>Oblivious Transfer</span></div>
+    <div class="hero-sub">Play as Bob. Choose which message to learn without Alice knowing your choice, and without you learning the other message.</div>
+  </div>
+</div>
+
+<!-- ══ TWO-COLUMN MAIN ══ -->
+<div class="layout" style="min-height: calc(100vh - 200px);">
+
+  <!-- PANEL 1 — ALICE (SENDER) -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--accent);"><div class="leg-indicator" style="background:var(--accent);box-shadow:0 0 6px var(--accent);"></div> SENDER</div>
+      <div class="panel-title">
+        Alice's Panel
+      </div>
+    </div>
+    <div class="panel-body greyed-out" id="alice-panel">
+
+      <div class="fg">
+        <div class="fl">Message 0 (Hidden)</div>
+        <input type="text" id="inp-m0" value="???" readonly>
+      </div>
+
+      <div class="fg">
+        <div class="fl">Message 1 (Hidden)</div>
+        <input type="text" id="inp-m1" value="???" readonly>
+      </div>
+      
+      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
+        Alice holds two messages and will encrypt both, sending them to Bob. She learns nothing about Bob's choice.
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PANEL 2 — BOB (RECEIVER) -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--purple);"><div class="leg-indicator" style="background:var(--purple);box-shadow:0 0 6px var(--purple);"></div> RECEIVER (YOU)</div>
+      <div class="panel-title">
+        Bob's Panel
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="row" id="btn-choices">
+        <button class="btn btn-primary" onclick="startProtocol(0)">▶ Choose m0</button>
+        <button class="btn btn-primary" style="background:var(--purple); border-color:var(--purple);" onclick="startProtocol(1)">▶ Choose m1</button>
+      </div>
+      
+      <div id="cheat-row" class="row" style="display:none; margin-top: 15px;">
+        <button class="btn btn-ghost" style="color:var(--amber); border-color:var(--amber);" onclick="cheatAttempt()">⚡ Cheat attempt (Decrypt other message)</button>
+      </div>
+
+      <div class="chat-log" id="chat-log">
+        <div class="log-sys">Waiting for you to make a choice...</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script src="pa18_demo.js"></script>
+</body>
+</html>

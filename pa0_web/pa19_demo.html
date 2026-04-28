@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA#19 — Secure AND Gate Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .chat-log { background: var(--surface2); border-radius: var(--r2); padding: 10px; min-height: 150px; max-height: 400px; overflow-y: auto; font-family: var(--mono); font-size: 11px; margin-top: 15px; border: 1px solid var(--border2); }
+  .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  .log-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .log-alice { color: var(--accent); }
+  .log-bob { color: var(--purple); }
+  .log-sys { color: var(--text3); font-style: italic; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--r2); padding: 10px; margin-top: 15px; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  th, td { border: 1px solid var(--border2); padding: 5px; text-align: center; }
+  th { background: var(--surface2); color: var(--text2); }
+  td.true { color: var(--green); font-weight: bold; }
+  td.false { color: var(--text3); }
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">AND</div>
+    <div class="logo-text"> &nbsp;<em>Secure Gate</em> Interactive Demo</div>
+  </div>
+
+  <div class="bar-section">
+    <div class="seg" id="seg-found">
+      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
+    </div>
+  </div>
+
+  <span class="pa-badge">PA #19</span>
+</div>
+
+<!-- ══ HERO STRIP ══ -->
+<div class="hero-strip">
+  <div>
+    <div class="hero-title">Secure <span>AND Gate</span> via OT</div>
+    <div class="hero-sub">Alice holds bit `a`, Bob holds bit `b`. They securely evaluate `a ∧ b` without revealing their inputs using 1-out-of-2 Oblivious Transfer.</div>
+  </div>
+</div>
+
+<!-- ══ TWO-COLUMN MAIN ══ -->
+<div class="layout" style="min-height: calc(100vh - 200px);">
+
+  <!-- PANEL 1 — ALICE -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--accent);"><div class="leg-indicator" style="background:var(--accent);box-shadow:0 0 6px var(--accent);"></div> SENDER</div>
+      <div class="panel-title">
+        Alice's Panel
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="fg">
+        <div class="fl">Alice's input bit `a`</div>
+        <select id="inp-a">
+          <option value="0">0</option>
+          <option value="1" selected>1</option>
+        </select>
+      </div>
+
+      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
+        Alice will construct messages (m0=0, m1=a) for the OT protocol.
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PANEL 2 — BOB -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--purple);"><div class="leg-indicator" style="background:var(--purple);box-shadow:0 0 6px var(--purple);"></div> RECEIVER</div>
+      <div class="panel-title">
+        Bob's Panel
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="fg">
+        <div class="fl">Bob's input bit `b`</div>
+        <select id="inp-b">
+          <option value="0">0</option>
+          <option value="1" selected>1</option>
+        </select>
+      </div>
+      
+      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
+        Bob will use his choice bit `b` for the OT protocol.
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ LOGS & TRUTH TABLE ══ -->
+<div style="padding: 24px;">
+    <div class="row">
+      <button class="btn btn-primary" onclick="computeAND()">▶ Compute AND</button>
+      <button class="btn btn-ghost" onclick="runTruthTable()">▶ Run all (Truth Table)</button>
+    </div>
+    
+    <div class="chat-log" id="chat-log">
+      <div class="log-sys">Enter `a` and `b`, then click Compute AND...</div>
+    </div>
+    
+    <div class="out-box" id="privacy-box" style="display:none; margin-top: 15px;">
+        <div class="out-lbl">Privacy Summary & Transcript</div>
+        <div class="out-val" style="margin-bottom: 10px;">
+            <b>What does Alice learn?</b> Nothing. She only sees Bob's public keys (pk0, pk1) which are computationally indistinguishable. <br>
+            <b>What does Bob learn?</b> Only the result `a ∧ b`. He cannot decrypt the other OT ciphertext.
+        </div>
+        <div class="out-val">
+            <b>Raw Wire Transcript:</b><br>
+            <pre id="transcript-raw" style="font-family:var(--mono); font-size:10px; color:var(--text3); white-space:pre-wrap;"></pre>
+        </div>
+    </div>
+    
+    <div class="table-wrap" id="truth-table" style="display:none;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Alice (a)</th>
+                    <th>Bob (b)</th>
+                    <th>Secure Result (a ∧ b)</th>
+                    <th>Expected</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="tt-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script src="pa19_demo.js"></script>
+</body>
+</html>

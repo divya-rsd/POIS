@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA#17 — CCA-Secure PKC (Signcrypt) Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">CCA</div>
+    <div class="logo-text"> &nbsp;<em>Signcrypt</em> Interactive Demo</div>
+  </div>
+
+  <div class="bar-section">
+    <div class="seg" id="seg-found">
+      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
+    </div>
+  </div>
+
+  <span class="pa-badge">PA #17</span>
+</div>
+
+<!-- ══ HERO STRIP ══ -->
+<div class="hero-strip">
+  <div>
+    <div class="hero-title">CCA Malleability <span>Blocked</span></div>
+    <div class="hero-sub">Demonstration of Encrypt-then-Sign blocking multiplicative malleability attacks that break plain ElGamal.</div>
+  </div>
+</div>
+
+<!-- ══ TWO-COLUMN MAIN ══ -->
+<div class="layout" style="min-height: calc(100vh - 200px);">
+
+  <!-- PANEL 1 — SIGNCRYPT -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--accent);"><div class="leg-indicator" style="background:var(--accent);box-shadow:0 0 6px var(--accent);"></div> SECURE SIGNCRYPT</div>
+      <div class="panel-title">
+        Encrypt-then-Sign
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="fg">
+        <div class="fl">Message to Encrypt (integer)</div>
+        <input type="text" id="inp-msg" value="1234" placeholder="Enter an integer message...">
+      </div>
+
+      <div class="row">
+        <button class="btn btn-primary" onclick="runEncrypt()">▶ Encrypt-then-Sign</button>
+      </div>
+
+      <div id="sc-out" class="out-box" style="display:none">
+        <div class="out-lbl" id="sc-out-lbl">Signcrypt Ciphertext</div>
+        <div class="out-val">
+            <span style="color:var(--text3)">C_E (ElGamal c1, c2):</span><br>
+            <span id="sc-c1" class="mono"></span><br>
+            <span id="sc-c2" class="mono"></span><br><br>
+            <span style="color:var(--text3)">Signature (RSA σ):</span><br>
+            <span id="sc-sig" class="mono"></span>
+        </div>
+      </div>
+
+      <div class="row" id="tamper-row" style="display:none; margin-top:15px;">
+        <button class="btn btn-ghost" style="color:var(--amber); border-color:var(--amber);" onclick="tamperSigncrypt()">⚡ Tamper with C_E (c2 = 2 * c2)</button>
+        <button class="btn" style="background:var(--purple-dim); color:var(--purple); border-color:var(--purple);" onclick="decryptSigncrypt()">Decrypt Oracle</button>
+      </div>
+
+      <div id="sc-dec-out" class="out-box" style="display:none; border-color:rgba(167,139,250,.3); background:var(--purple-dim);">
+        <div class="out-lbl" style="color:var(--purple);">Oracle Output</div>
+        <div class="out-val" id="sc-dec-val"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PANEL 2 — CONTRAST ELGAMAL -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--red);"><div class="leg-indicator" style="background:var(--red);box-shadow:0 0 6px var(--red);"></div> VULNERABLE ELGAMAL</div>
+      <div class="panel-title">
+        Contrast Panel: Plain ElGamal
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div id="eg-out" class="out-box" style="display:none; border-color:rgba(248,113,113,.3); background:var(--red-dim);">
+        <div class="out-lbl" style="color:var(--red);">Plain Ciphertext</div>
+        <div class="out-val">
+            <span style="color:var(--text3)">C_E (ElGamal c1, c2):</span><br>
+            <span id="eg-c1" class="mono"></span><br>
+            <span id="eg-c2" class="mono"></span>
+        </div>
+      </div>
+
+      <div class="row" id="eg-tamper-row" style="display:none; margin-top:15px;">
+        <button class="btn btn-ghost" style="color:var(--amber); border-color:var(--amber);" onclick="tamperElGamal()">⚡ Tamper with C_E (c2 = 2 * c2)</button>
+        <button class="btn" style="background:var(--purple-dim); color:var(--purple); border-color:var(--purple);" onclick="decryptElGamal()">Decrypt Oracle</button>
+      </div>
+
+      <div id="eg-dec-out" class="out-box" style="display:none; border-color:rgba(167,139,250,.3); background:var(--purple-dim);">
+        <div class="out-lbl" style="color:var(--purple);">Oracle Output</div>
+        <div class="out-val" id="eg-dec-val"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script src="pa17_demo.js"></script>
+</body>
+</html>

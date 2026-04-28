@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA#20 — Yao/GMW Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .slider-box { display:flex; align-items:center; gap: 10px; margin-top:10px; }
+  .slider-val { font-family:var(--mono); font-weight:bold; width: 30px; text-align:right; }
+  
+  .progress-bg { width: 100%; background: var(--surface2); height: 8px; border-radius: 4px; overflow: hidden; margin-top: 15px; display: none; }
+  .progress-fill { height: 100%; background: var(--amber); width: 0%; transition: width 0.1s linear; }
+  
+  .result-banner { text-align:center; padding: 15px; font-size: 20px; font-weight: bold; background: var(--surface2); border: 2px solid var(--amber); border-radius: var(--r2); margin-top: 15px; display:none; }
+  
+  .trace-container { margin-top: 20px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--surface); display:none; }
+  .trace-header { padding: 10px; background: var(--surface2); cursor: pointer; font-weight: 500; display:flex; justify-content:space-between; }
+  .trace-body { padding: 10px; font-family: var(--mono); font-size: 11px; max-height: 300px; overflow-y: auto; color: var(--text3); display:none; }
+  
+  .trace-gate { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border2); }
+  .trace-gate:last-child { border-bottom: none; }
+  .op-AND { color: var(--green); }
+  .op-XOR { color: var(--accent); }
+  .op-NOT { color: var(--purple); }
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon" style="background:var(--amber); color:#000;">Yao</div>
+    <div class="logo-text"> &nbsp;<em>Millionaire's</em> Interactive Demo</div>
+  </div>
+
+  <div class="bar-section">
+    <div class="seg" id="seg-found">
+      <button class="on" onclick="window.location.href='index.html'">← Back to Minicrypt Explorer</button>
+    </div>
+  </div>
+
+  <span class="pa-badge" style="background:var(--amber); color:#000;">PA #20</span>
+</div>
+
+<!-- ══ HERO STRIP ══ -->
+<div class="hero-strip">
+  <div>
+    <div class="hero-title">Millionaire's <span>Problem Live</span></div>
+    <div class="hero-sub">Alice and Bob securely evaluate the `x > y` circuit without revealing their wealth.</div>
+  </div>
+</div>
+
+<!-- ══ TWO-COLUMN MAIN ══ -->
+<div class="layout" style="min-height: calc(100vh - 200px);">
+
+  <!-- PANEL 1 — ALICE -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--accent);"><div class="leg-indicator" style="background:var(--accent);box-shadow:0 0 6px var(--accent);"></div> ALICE</div>
+      <div class="panel-title">
+        Alice's Wealth (x)
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="fg">
+        <div class="fl">Adjust Alice's Wealth (4-bit: 0-15)</div>
+        <div class="slider-box">
+            <input type="range" id="alice-x" min="0" max="15" value="7" oninput="document.getElementById('val-x').innerText=this.value">
+            <div class="slider-val" id="val-x">7</div>
+        </div>
+      </div>
+      
+      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
+        Hidden from Bob. Alice inputs this into the circuit as `INPUT_A`.
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PANEL 2 — BOB -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-leg" style="--accent:var(--purple);"><div class="leg-indicator" style="background:var(--purple);box-shadow:0 0 6px var(--purple);"></div> BOB</div>
+      <div class="panel-title">
+        Bob's Wealth (y)
+      </div>
+    </div>
+    <div class="panel-body">
+
+      <div class="fg">
+        <div class="fl">Adjust Bob's Wealth (4-bit: 0-15)</div>
+        <div class="slider-box">
+            <input type="range" id="bob-y" min="0" max="15" value="12" oninput="document.getElementById('val-y').innerText=this.value">
+            <div class="slider-val" id="val-y">12</div>
+        </div>
+      </div>
+      
+      <div style="color:var(--text3); font-size:11px; margin-top:10px;">
+        Hidden from Alice. Bob inputs this into the circuit as `INPUT_B`.
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ RESULTS & TRACE ══ -->
+<div style="padding: 24px;">
+    <button class="btn btn-primary" style="background:var(--amber); color:#000;" id="btn-run" onclick="runMillionaires()">⚡ Who is richer?</button>
+    
+    <div class="progress-bg" id="progress-bg">
+        <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    
+    <div class="result-banner" id="result-banner"></div>
+    
+    <div class="trace-container" id="trace-container">
+        <div class="trace-header" onclick="toggleTrace()">
+            <span>Circuit Trace (Expand to view gate evaluations)</span>
+            <span id="trace-caret">▼</span>
+        </div>
+        <div class="trace-body" id="trace-body"></div>
+    </div>
+</div>
+
+<script src="pa20_demo.js"></script>
+</body>
+</html>

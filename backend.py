@@ -85,11 +85,20 @@ def _ensure_elg():
         _ELG = ElGamal(bits=128)
     return _ELG
 
-def _ensure_cca_pkc():
+def _ensure_rsa_sign():
     global _CCA_PKC
     if _CCA_PKC is None:
-        _CCA_PKC = CCA_PKC(bits=128)
+        rsa, _ = _ensure_rsa()
+        _CCA_PKC = RSA_Sign(rsa)
     return _CCA_PKC
+
+_EG_KEYS = None
+def _ensure_eg_keys():
+    global _EG_KEYS
+    eg = _ensure_elg()
+    if _EG_KEYS is None:
+        _EG_KEYS = eg.keygen()
+    return _EG_KEYS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -410,32 +419,117 @@ def api_pa16_elgamal():
 # ─────────────────────────────────────────────────────────────────────────────
 @app.post("/api/pa17/encrypt")
 def api_pa17_enc():
-    cca = _ensure_cca_pkc()
+    eg = _ensure_elg()
+    signer = _ensure_rsa_sign()
+    keys = _ensure_eg_keys()
+    pk_enc = keys['pk']
     data = request.get_json(silent=True) or {}
-    m = int(data.get("m", 1234)) % cca.pk[0]
-    c1, c2, sig = cca.encrypt(cca.pk, m)
-    dec = cca.decrypt(cca.sk, cca.pk, c1, c2, sig)
-    # Tamper sanity
-    bad = cca.decrypt(cca.sk, cca.pk, c1, (c2 + 1) % cca.pk[0], sig)
+    m = int(data.get("m", 1234)) % pk_enc[0]
+    
+    # 1. Plain ElGamal
+    plain_c1, plain_c2 = eg.encrypt(pk_enc, m)
+    
+    # 2. Signcrypt
+    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer, m)
+    
     return jsonify({
-        "m": m, "c1": _to_hex(c1), "c2": _to_hex(c2), "sig": _to_hex(sig),
-        "dec": dec, "tampered_decrypt": bad,
+        "m": m, 
+        "plain_c1": _to_hex(plain_c1), "plain_c2": _to_hex(plain_c2),
+        "c1": _to_hex(c1), "c2": _to_hex(c2), "sig": _to_hex(sig)
     })
+
+@app.post("/api/pa17/decrypt_elgamal")
+def api_pa17_dec_elgamal():
+    eg = _ensure_elg()
+    keys = _ensure_eg_keys()
+    sk_enc, pk_enc = keys['sk'], keys['pk']
+    data = request.get_json(silent=True) or {}
+    c1 = int(data.get("c1", ""), 16)
+    c2 = int(data.get("c2", ""), 16)
+    dec = eg.decrypt(sk_enc, pk_enc, c1, c2)
+    return jsonify({"dec": dec})
+
+@app.post("/api/pa17/decrypt_signcrypt")
+def api_pa17_dec_signcrypt():
+    eg = _ensure_elg()
+    keys = _ensure_eg_keys()
+    sk_enc, pk_enc = keys['sk'], keys['pk']
+    verifier = _ensure_rsa_sign()
+    data = request.get_json(silent=True) or {}
+    c1 = int(data.get("c1", ""), 16)
+    c2 = int(data.get("c2", ""), 16)
+    sig = int(data.get("sig", ""), 16)
+    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, verifier, c1, c2, sig)
+    return jsonify({"dec": dec, "rejected": dec is None})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PA#18 — Oblivious Transfer
 # ─────────────────────────────────────────────────────────────────────────────
-@app.post("/api/pa18/ot")
-def api_pa18_ot():
+_PA18_STATE = {}
+
+@app.post("/api/pa18/demo_setup")
+def api_pa18_demo_setup():
     data = request.get_json(silent=True) or {}
-    b = int(data.get("b", 0)) & 1
     m0 = int(data.get("m0", 100))
     m1 = int(data.get("m1", 200))
+    _PA18_STATE['m0'] = m0
+    _PA18_STATE['m1'] = m1
+    return jsonify({"m0": m0, "m1": m1})
+
+@app.post("/api/pa18/demo_step1")
+def api_pa18_demo_step1():
+    data = request.get_json(silent=True) or {}
+    b = int(data.get("b", 0)) & 1
+    _PA18_STATE['b'] = b
     pk0, pk1, st = _OT.receiver_step1(b)
+    _PA18_STATE['receiver_state'] = st
+    _PA18_STATE['pk0'] = pk0
+    _PA18_STATE['pk1'] = pk1
+    return jsonify({
+        "pk0_h": _to_hex(pk0[3]),
+        "pk1_h": _to_hex(pk1[3])
+    })
+
+@app.post("/api/pa18/demo_step2")
+def api_pa18_demo_step2():
+    pk0 = _PA18_STATE.get('pk0')
+    pk1 = _PA18_STATE.get('pk1')
+    m0 = _PA18_STATE.get('m0')
+    m1 = _PA18_STATE.get('m1')
+    if not pk0 or not m0:
+        return jsonify({"error": "run setup and step1 first"}), 400
     c0, c1 = _OT.sender_step(pk0, pk1, m0, m1)
+    _PA18_STATE['c0'] = c0
+    _PA18_STATE['c1'] = c1
+    return jsonify({
+        "c0_c1": _to_hex(c0[0]), "c0_c2": _to_hex(c0[1]),
+        "c1_c1": _to_hex(c1[0]), "c1_c2": _to_hex(c1[1])
+    })
+
+@app.post("/api/pa18/demo_step3")
+def api_pa18_demo_step3():
+    st = _PA18_STATE.get('receiver_state')
+    c0 = _PA18_STATE.get('c0')
+    c1 = _PA18_STATE.get('c1')
+    if not st or not c0:
+        return jsonify({"error": "run step2 first"}), 400
     got = _OT.receiver_step2(st, c0, c1)
-    return jsonify({"b": b, "m0": m0, "m1": m1, "got": got, "correct": got == (m0 if b == 0 else m1)})
+    b = _PA18_STATE['b']
+    m_expected = _PA18_STATE['m0'] if b == 0 else _PA18_STATE['m1']
+    return jsonify({"got": got, "correct": got == m_expected})
+
+@app.post("/api/pa18/demo_cheat")
+def api_pa18_demo_cheat():
+    st = _PA18_STATE.get('receiver_state')
+    c0 = _PA18_STATE.get('c0')
+    c1 = _PA18_STATE.get('c1')
+    b = _PA18_STATE.get('b')
+    m_other = _PA18_STATE.get('m1') if b == 0 else _PA18_STATE.get('m0')
+    if not st or not c0:
+        return jsonify({"error": "run step2 first"}), 400
+    res = _OT.dlp_break_other_message(st, c0, c1, m_other, max_iters=100000)
+    return jsonify(res)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -448,6 +542,35 @@ def api_pa19_and():
     b = int(data.get("b", 1)) & 1
     return jsonify({"a": a, "b": b, "and": _GATES.AND(a, b), "xor": _GATES.XOR(a, b)})
 
+@app.post("/api/pa19/demo_and")
+def api_pa19_demo_and():
+    data = request.get_json(silent=True) or {}
+    a = int(data.get("a", 1)) & 1
+    b = int(data.get("b", 1)) & 1
+    
+    _GATES.reset_metrics()
+    res = _GATES.AND(a, b)
+    
+    # We want to format the transcript properly since it contains large ints/tuples
+    formatted_transcript = []
+    for op, payload in _GATES.transcript:
+        fmt_payload = {}
+        for k, v in payload.items():
+            if isinstance(v, int):
+                fmt_payload[k] = _to_hex(v) if v > 10 else v
+            elif isinstance(v, tuple):
+                fmt_payload[k] = "(" + ", ".join(
+                    _to_hex(x) if isinstance(x, int) and x > 10 else str(x) for x in v
+                ) + ")"
+            else:
+                fmt_payload[k] = str(v)
+        formatted_transcript.append({"op": op, "payload": fmt_payload})
+        
+    return jsonify({
+        "a": a, "b": b, "res": res, 
+        "transcript": formatted_transcript
+    })
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PA#20 — 2-Party MPC (Millionaire's Problem)
@@ -457,7 +580,13 @@ def api_pa20_millionaires():
     data = request.get_json(silent=True) or {}
     x = int(data.get("x", 7)) & 0xF
     y = int(data.get("y", 12)) & 0xF
-    return jsonify({"x": x, "y": y, "result": _CIRCUIT.millionaires(x, y)})
+    res = _CIRCUIT.millionaires(x, y)
+    return jsonify({
+        "x": x, 
+        "y": y, 
+        "result": res,
+        "trace": _CIRCUIT.last_metrics.get('trace', [])
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -13,23 +13,20 @@ from pa11.dh import _rand_exp
 # ─────────── PA #17 — CCA-PKC ───────────
 class CCA_PKC:
     """Encrypt-then-Sign (Signcrypt): CCA2-secure PKC."""
-
-    def __init__(self, bits=128):
-        self._eg = ElGamal(bits)
-        self._rsa = RSA(bits*2)
-        self._signer = RSA_Sign(self._rsa)
-        self.keys = self._eg.keygen()
-        self.sk = self.keys['sk']; self.pk = self.keys['pk']
-
-    def encrypt(self, pk, m: int) -> tuple:
-        c1,c2 = self._eg.encrypt(pk, m)
-        sig = self._signer.sign(f"{c1},{c2}".encode())
+    
+    @staticmethod
+    def CCA_PKC_Enc(eg: ElGamal, pk_enc, signer: RSA_Sign, m: int) -> tuple:
+        """First encrypt m with ElGamal (PA#16), then sign ciphertext with digital signature (PA#15)."""
+        c1, c2 = eg.encrypt(pk_enc, m)
+        sig = signer.sign(f"{c1},{c2}".encode())
         return c1, c2, sig
 
-    def decrypt(self, sk_x, pk, c1, c2, sig) -> int:
-        if not self._signer.verify(f"{c1},{c2}".encode(), sig):
+    @staticmethod
+    def CCA_PKC_Dec(eg: ElGamal, sk_enc, pk_enc, verifier: RSA_Sign, c1, c2, sig):
+        """Call Verify first; if signature is invalid return ⊥; otherwise call Dec."""
+        if not verifier.verify(f"{c1},{c2}".encode(), sig):
             return None  # ⊥
-        return self._eg.decrypt(sk_x, pk, c1, c2)
+        return eg.decrypt(sk_enc, pk_enc, c1, c2)
 
 
 # ─────────── PA #17 — IND-CCA2 Game ───────────
@@ -51,8 +48,12 @@ class IND_CCA2_Game:
     returns ⊥ on every adversary attempt — making the oracle useless.
     """
 
-    def __init__(self, cca: 'CCA_PKC'):
-        self.cca = cca
+    def __init__(self, bits=128):
+        self.eg = ElGamal(bits)
+        self.rsa = RSA(bits*2)
+        self.signer = RSA_Sign(self.rsa)
+        self.keys = self.eg.keygen()
+        self.sk = self.keys['sk']; self.pk = self.keys['pk']
         self.oracle_calls = 0
         self.oracle_rejections = 0
 
@@ -61,7 +62,7 @@ class IND_CCA2_Game:
         self.oracle_calls += 1
         if (c1, c2, sig) == challenge:
             return None  # forbidden query — challenger refuses
-        result = self.cca.decrypt(self.cca.sk, self.cca.pk, c1, c2, sig)
+        result = CCA_PKC.CCA_PKC_Dec(self.eg, self.sk, self.pk, self.signer, c1, c2, sig)
         if result is None:
             self.oracle_rejections += 1
         return result
@@ -76,7 +77,7 @@ class IND_CCA2_Game:
         self.oracle_calls = 0
         self.oracle_rejections = 0
         for _ in range(n_rounds):
-            p = self.cca.pk[0]
+            p = self.pk[0]
             # CSPRNG-driven challenge: m0, m1, b all from secrets.
             m0 = 2 + secrets.randbelow(max(1, p // 4 - 2))
             m1 = 2 + secrets.randbelow(max(1, p // 4 - 2))
@@ -84,7 +85,7 @@ class IND_CCA2_Game:
                 m1 = 2 + secrets.randbelow(max(1, p // 4 - 2))
             b = secrets.randbits(1)
             mb = m0 if b == 0 else m1
-            c1, c2, sig = self.cca.encrypt(self.cca.pk, mb)
+            c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk, self.signer, mb)
             challenge = (c1, c2, sig)
             # Multiplicative-malleability attempt — same trick that breaks plain ElGamal
             mutated_c2 = (2 * c2) % p
@@ -109,32 +110,49 @@ class IND_CCA2_Game:
 
 def demo_pa17():
     print("="*60); print("PA #17 — CCA-Secure PKC (Signcrypt)"); print("="*60)
-    cca = CCA_PKC(bits=128)
+    
+    # ── Setup explicit keys to match requirements ──
+    eg = ElGamal(bits=128)
+    receiver_keys = eg.keygen()
+    sk_enc, pk_enc = receiver_keys['sk'], receiver_keys['pk']
+    
+    rsa = RSA(bits=256)
+    signer = RSA_Sign(rsa)
+    
     m = 9999
-    c1, c2, sig = cca.encrypt(cca.pk, m)
-    dec = cca.decrypt(cca.sk, cca.pk, c1, c2, sig)
+    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer, m)
+    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, signer, c1, c2, sig)
     print(f"  Encrypt/Decrypt m={m}: {dec==m} ✓")
 
     # ── Multiplicative-malleability attack: works on plain ElGamal, blocked here ──
     print("\n  [Multiplicative malleability attack — plain ElGamal vs. signcrypt]")
-    p = cca.pk[0]
-    eg = cca._eg
-    plain_c1, plain_c2 = eg.encrypt(cca.pk, m)
+    p = pk_enc[0]
+    plain_c1, plain_c2 = eg.encrypt(pk_enc, m)
     plain_c2_mauled = (2 * plain_c2) % p
-    plain_dec = eg.decrypt(cca.sk, cca.pk, plain_c1, plain_c2_mauled)
+    plain_dec = eg.decrypt(sk_enc, pk_enc, plain_c1, plain_c2_mauled)
     print(f"  Plain ElGamal: Enc(m={m}) → maul c2 → Dec gives {plain_dec} (= 2m? {plain_dec == 2*m}) ✗ broken")
 
     cca_c2_mauled = (2 * c2) % p
-    cca_dec_mauled = cca.decrypt(cca.sk, cca.pk, c1, cca_c2_mauled, sig)
+    cca_dec_mauled = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, signer, c1, cca_c2_mauled, sig)
     print(f"  Signcrypt:     Enc(m={m}) → maul c2 → Dec gives {cca_dec_mauled} (⊥ = rejected) ✓ blocked")
 
     # ── Formal IND-CCA2 game ──
     print("\n  [Formal IND-CCA2 game — multiplicative-malleability adversary, 50 rounds]")
-    game = IND_CCA2_Game(cca)
+    game = IND_CCA2_Game(bits=128)
     res = game.malleability_adversary(n_rounds=50)
     print(f"  Wins: {res['wins']}/{res['rounds']}, advantage = {res['advantage']} ≈ 0  → CCA2-secure ✓")
     print(f"  Oracle calls = {res['oracle_calls']}, rejections (⊥) = {res['oracle_rejections']}")
     print(f"  Every malleated query was rejected → decryption oracle is useless to the adversary.")
+    
+    # ── Lineage Check ──
+    print("\n  [End-to-end lineage]")
+    print("  CCA_PKC_Enc → ElGamal.encrypt (PA#16) + RSA_Sign.sign (PA#15)")
+    print("    ├─ ElGamal (PA#16)")
+    print("    │  └─ DH safe-prime parameters (PA#11)")
+    print("    │     └─ Miller-Rabin primality testing (PA#13)")
+    print("    └─ RSA_Sign (PA#15)")
+    print("       └─ RSA core (PA#12)")
+    print("          └─ Miller-Rabin primality testing (PA#13)")
     print("✓ PA#17 complete.")
 
 # ─────────── PA #18 — Oblivious Transfer ───────────
@@ -201,12 +219,13 @@ class OT_1of2:
         cb = c0 if b == 0 else c1
         return self._eg.decrypt(sk_b, pk_b, *cb)
 
-    def dlp_break_other_message(self, state, c0, c1, m_real_other: int) -> dict:
+    def dlp_break_other_message(self, state, c0, c1, m_real_other: int, max_iters: int = 100000) -> dict:
         """
         Brute-force log_g(fake_h) — the receiver's only path to m_{1-b}.
 
         Returns iterations + recovered message; should match `m_real_other`
         if the brute force succeeds. Intended for tiny groups (q << 2^20).
+        max_iters protects against hanging on large production groups.
         """
         b = state['b']
         p, g, q, _ = state['pk_b']
@@ -216,14 +235,15 @@ class OT_1of2:
         t0 = time.time()
         x_found = None
         cur = 1
-        for x in range(1, q):
+        limit = min(q, max_iters + 1) if max_iters else q
+        for x in range(1, limit):
             cur = cur * g % p
             if cur == fake_h:
                 x_found = x
                 break
         elapsed = time.time() - t0
         if x_found is None:
-            return {'recovered': False, 'iters': q - 1, 'time_s': round(elapsed, 4)}
+            return {'recovered': False, 'iters': limit - 1, 'time_s': round(elapsed, 4)}
         # Decrypt the OTHER ciphertext using the brute-forced sk
         s = _fast_pow(c1_other, x_found, p)
         recovered = c2_other * _mod_inverse(s, p) % p
@@ -460,11 +480,13 @@ class Circuit:
 
     def Secure_Eval(self, gates_runtime: 'SecureGates',
                     x_alice: list[int], y_bob: list[int],
-                    output_wires: list[int]) -> list[int]:
+                    output_wires: list[int],
+                    trace: list = None) -> list[int]:
         """
         Evaluate the circuit on Alice's input bits x_alice and Bob's bits y_bob,
         calling *only* gates_runtime.AND/XOR/NOT (each of which is a secure
         protocol invocation) — never plaintext math.
+        If trace is provided, it will be populated with a step-by-step gate execution log.
         """
         wire_values: dict[int, int] = {}
         for w in self.topological_order():
@@ -486,6 +508,15 @@ class Circuit:
                 wire_values[w] = gates_runtime.NOT(a)
             else:
                 raise ValueError(f"Unknown gate op: {g.op}")
+            
+            if trace is not None and g.op in ('AND', 'XOR', 'NOT'):
+                trace.append({
+                    "op": g.op,
+                    "inputs": g.inputs,
+                    "output_wire": w,
+                    "output_val": wire_values[w]
+                })
+                
         return [wire_values[w] for w in output_wires]
 
 
@@ -580,8 +611,9 @@ class SecureCircuit:
 
     def _evaluate(self, circuit: Circuit, x_bits, y_bits, out_wires) -> tuple:
         self.g.reset_metrics()
+        trace = []
         t0 = time.time()
-        outs = circuit.Secure_Eval(self.g, x_bits, y_bits, out_wires)
+        outs = circuit.Secure_Eval(self.g, x_bits, y_bits, out_wires, trace=trace)
         elapsed = time.time() - t0
         self.last_metrics = {
             'gates_evaluated': len(circuit.gates),
@@ -590,6 +622,7 @@ class SecureCircuit:
             'not_calls': self.g.not_count,
             'ot_calls': self.g._ot.call_count,
             'time_s': round(elapsed, 4),
+            'trace': trace,
         }
         return outs
 
