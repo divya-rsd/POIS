@@ -85,12 +85,9 @@ def _ensure_elg():
         _ELG = ElGamal(bits=128)
     return _ELG
 
-def _ensure_rsa_sign():
-    global _CCA_PKC
-    if _CCA_PKC is None:
-        rsa, _ = _ensure_rsa()
-        _CCA_PKC = RSA_Sign(rsa)
-    return _CCA_PKC
+def _ensure_rsa_sign_keys():
+    rsa, _ = _ensure_rsa()
+    return rsa.sk, rsa.pk
 
 _EG_KEYS = None
 def _ensure_eg_keys():
@@ -345,19 +342,77 @@ def api_pa12_pkcs15():
         "match": dec == msg,
     })
 
+@app.post("/api/pa12/encrypt_twice")
+def api_pa12_encrypt_twice():
+    rsa, pkcs = _ensure_rsa()
+    data = request.get_json(silent=True) or {}
+    msg_str = data.get("m", "yes")
+    mode = data.get("mode", "textbook")
+    
+    if mode == "textbook":
+        # Convert string to int
+        m = int.from_bytes(msg_str.encode('utf-8'), 'big')
+        c1 = rsa.encrypt(m)
+        c2 = rsa.encrypt(m)
+        return jsonify({
+            "mode": mode,
+            "m": msg_str,
+            "c1": _to_hex(c1),
+            "c2": _to_hex(c2),
+            "match": c1 == c2
+        })
+    else:
+        # PKCS#1 v1.5
+        msg_bytes = msg_str.encode('utf-8')
+        c1 = pkcs.encrypt(msg_bytes)
+        c2 = pkcs.encrypt(msg_bytes)
+        
+        m1_padded = rsa.decrypt_crt(c1)
+        em1 = pkcs._i2osp(m1_padded, pkcs.k)
+        sep1 = em1.find(b'\x00', 2)
+        ps1 = em1[2:sep1]
+        
+        m2_padded = rsa.decrypt_crt(c2)
+        em2 = pkcs._i2osp(m2_padded, pkcs.k)
+        sep2 = em2.find(b'\x00', 2)
+        ps2 = em2[2:sep2]
+        
+        return jsonify({
+            "mode": mode,
+            "m": msg_str,
+            "c1": _to_hex(c1),
+            "c2": _to_hex(c2),
+            "ps1": _to_hex(ps1),
+            "ps2": _to_hex(ps2),
+            "match": c1 == c2
+        })
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PA#13 — Miller-Rabin
 # ─────────────────────────────────────────────────────────────────────────────
-@app.post("/api/pa13/primality")
-def api_pa13_primality():
+@app.post("/api/pa13/miller_rabin")
+def api_pa13_miller_rabin():
     data = request.get_json(silent=True) or {}
+    n_str = data.get("n", "")
+    k = int(data.get("k", 40))
     try:
-        n = int(data.get("n", 7919))
+        n = int(n_str)
     except ValueError:
-        return jsonify({"error": "n must be an integer"}), 400
-    rounds = int(data.get("rounds", 40))
-    return jsonify({"n": n, "is_prime": miller_rabin(n, rounds), "rounds": rounds})
+        return jsonify({"error": "Invalid integer format."}), 400
+        
+    trace = []
+    t0 = time.time()
+    from pa13.primality import miller_rabin
+    is_prime = miller_rabin(n, k, trace=trace)
+    elapsed = time.time() - t0
+    
+    return jsonify({
+        "n": n_str,
+        "k": k,
+        "is_prime": is_prime,
+        "time_ms": round(elapsed * 1000, 2),
+        "trace": trace
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,14 +421,47 @@ def api_pa13_primality():
 @app.post("/api/pa14/hastad")
 def api_pa14_hastad():
     data = request.get_json(silent=True) or {}
-    m = int(data.get("m", 42))
+    m_str = data.get("m", "A")
+    use_padding = bool(data.get("use_padding", False))
     e = 3
+    
+    # Use 256-bit so PKCS#1 v1.5 padding fits. It is instant computation.
     rsas = [RSA(bits=256) for _ in range(3)]
-    cts = [pow(m, e, r.N) for r in rsas]
     mods = [r.N for r in rsas]
-    recovered = hastad_attack(cts, mods, e=e)
+    
+    if use_padding:
+        pkcs_list = [RSA_PKCS15(r) for r in rsas]
+        msg_bytes = m_str.encode()
+        # Ensure we use e=3 for encrypting the padded bytes manually to simulate Håstad
+        cts = []
+        for r, p in zip(rsas, pkcs_list):
+            k = p.k
+            ps_len = k - len(msg_bytes) - 3
+            ps_bytes = bytearray()
+            while len(ps_bytes) < ps_len:
+                b = os.urandom(1)
+                if b != b'\x00': ps_bytes += b
+            em = b'\x00\x02' + bytes(ps_bytes) + b'\x00' + msg_bytes
+            m_int = int.from_bytes(em, 'big')
+            cts.append(pow(m_int, e, r.N))
+    else:
+        m = int.from_bytes(m_str.encode(), 'big')
+        cts = [pow(m, e, r.N) for r in rsas]
+        
+    from pa14_15_16.crt_sig_elgamal import crt, integer_nth_root
+    x = crt(cts, mods)
+    recovered_int = integer_nth_root(x, e)
+    try:
+        # Try to decode what we got
+        recovered_str = recovered_int.to_bytes((recovered_int.bit_length() + 7) // 8, 'big').decode('utf-8')
+    except:
+        recovered_str = "GARBAGE (Decryption Failed)"
+
     return jsonify({
-        "m": m, "recovered": recovered, "match": recovered == m,
+        "m": m_str, 
+        "recovered": recovered_str, 
+        "match": recovered_str == m_str,
+        "x_hex": _to_hex(x),
         "moduli": [_to_hex(N) for N in mods],
         "ciphertexts": [_to_hex(c) for c in cts],
     })
@@ -385,14 +473,60 @@ def api_pa14_hastad():
 @app.post("/api/pa15/sign")
 def api_pa15_sign():
     rsa, _ = _ensure_rsa()
-    signer = RSA_Sign(rsa)
+    from pa14_15_16.crt_sig_elgamal import Sign
     data = request.get_json(silent=True) or {}
-    m = (data.get("m", "") or "").encode()
-    sig = signer.sign(m)
+    m_str = data.get("m", "")
+    raw = data.get("raw", False)
+    
+    m_bytes = m_str.encode('utf-8')
+    if raw:
+        # Raw RSA sign: sig = m^d mod N.
+        # Ensure m < N. We'll use int.from_bytes
+        m_int = int.from_bytes(m_bytes, 'big')
+        sig = rsa.decrypt(m_int)
+    else:
+        sig = Sign(rsa.sk, m_bytes)
+        
     return jsonify({
-        "msg": m.decode("latin1"),
+        "m": m_str,
         "sig": _to_hex(sig),
-        "verify": signer.verify(m, sig),
+        "raw": raw
+    })
+
+@app.post("/api/pa15/verify")
+def api_pa15_verify():
+    rsa, _ = _ensure_rsa()
+    from pa14_15_16.crt_sig_elgamal import Verify
+    data = request.get_json(silent=True) or {}
+    m_str = data.get("m", "")
+    sig_hex = data.get("sig", "0")
+    raw = data.get("raw", False)
+    
+    try:
+        sig = int(sig_hex, 16)
+    except ValueError:
+        return jsonify({"valid": False, "error": "Invalid signature format"})
+        
+    m_bytes = m_str.encode('utf-8')
+    recovered_hash = pow(sig, rsa.e, rsa.N)
+    
+    if raw:
+        m_int = int.from_bytes(m_bytes, 'big')
+        valid = recovered_hash == m_int
+        expected = m_int
+    else:
+        from pa8_9_10.hash_hmac import DLP_Hash_Wide
+        hasher = DLP_Hash_Wide()
+        h = hasher.hash(m_bytes)
+        h_int = int.from_bytes(h, 'big')
+        valid = Verify(rsa.pk, m_bytes, sig)
+        expected = h_int
+        
+    return jsonify({
+        "valid": valid,
+        "recovered": _to_hex(recovered_hash),
+        "expected": _to_hex(expected),
+        "raw": raw
     })
 
 
@@ -405,9 +539,9 @@ def api_pa16_elgamal():
     keys = eg.keygen()
     sk, pk = keys["sk"], keys["pk"]
     data = request.get_json(silent=True) or {}
-    m = int(data.get("m", 1234)) % pk[0]
+    m = int(data.get("m", 1234)) % eg.q
     c1, c2 = eg.encrypt(pk, m)
-    dec = eg.decrypt(sk, pk, c1, c2)
+    dec = eg.decrypt(sk, c1, c2)
     return jsonify({
         "m": m, "c1": _to_hex(c1), "c2": _to_hex(c2),
         "dec": dec, "match": dec == m,
@@ -420,17 +554,17 @@ def api_pa16_elgamal():
 @app.post("/api/pa17/encrypt")
 def api_pa17_enc():
     eg = _ensure_elg()
-    signer = _ensure_rsa_sign()
+    signer_sk, _ = _ensure_rsa_sign_keys()
     keys = _ensure_eg_keys()
     pk_enc = keys['pk']
     data = request.get_json(silent=True) or {}
-    m = int(data.get("m", 1234)) % pk_enc[0]
+    m = int(data.get("m", 1234)) % eg.q
     
     # 1. Plain ElGamal
     plain_c1, plain_c2 = eg.encrypt(pk_enc, m)
     
     # 2. Signcrypt
-    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer, m)
+    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer_sk, m)
     
     return jsonify({
         "m": m, 
@@ -442,25 +576,27 @@ def api_pa17_enc():
 def api_pa17_dec_elgamal():
     eg = _ensure_elg()
     keys = _ensure_eg_keys()
-    sk_enc, pk_enc = keys['sk'], keys['pk']
+    sk_enc = keys['sk']
     data = request.get_json(silent=True) or {}
-    c1 = int(data.get("c1", ""), 16)
-    c2 = int(data.get("c2", ""), 16)
-    dec = eg.decrypt(sk_enc, pk_enc, c1, c2)
+    c1 = int(data.get("c1", "0"), 16)
+    c2 = int(data.get("c2", "0"), 16)
+    
+    dec = eg.decrypt(sk_enc, c1, c2)
     return jsonify({"dec": dec})
 
 @app.post("/api/pa17/decrypt_signcrypt")
 def api_pa17_dec_signcrypt():
     eg = _ensure_elg()
+    rsa, _ = _ensure_rsa()
     keys = _ensure_eg_keys()
     sk_enc, pk_enc = keys['sk'], keys['pk']
-    verifier = _ensure_rsa_sign()
     data = request.get_json(silent=True) or {}
-    c1 = int(data.get("c1", ""), 16)
-    c2 = int(data.get("c2", ""), 16)
-    sig = int(data.get("sig", ""), 16)
-    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, verifier, c1, c2, sig)
-    return jsonify({"dec": dec, "rejected": dec is None})
+    c1 = int(data.get("c1", "0"), 16)
+    c2 = int(data.get("c2", "0"), 16)
+    sig = int(data.get("sig", "0"), 16)
+    
+    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, rsa.pk, c1, c2, sig)
+    return jsonify({"dec": dec if dec is not None else "Invalid Signature"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

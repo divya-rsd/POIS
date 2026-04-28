@@ -16,26 +16,33 @@ from pa17_18_19_20.mpc import (
 class TestCCA_PKC(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cca = CCA_PKC(bits=128)
+        from pa14_15_16.crt_sig_elgamal import ElGamal
+        from pa12.rsa import RSA
+        cls.eg = ElGamal(bits=128)
+        keys = cls.eg.keygen()
+        cls.sk_enc, cls.pk_enc = keys['sk'], keys['pk']
+        cls.rsa = RSA(bits=512)
+        cls.signer_sk = cls.rsa.sk
+        cls.verifier_pk = cls.rsa.pk
 
     def test_correctness(self):
         m = 12345
-        c1, c2, sig = self.cca.encrypt(self.cca.pk, m)
-        self.assertEqual(self.cca.decrypt(self.cca.sk, self.cca.pk, c1, c2, sig), m)
+        c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk_enc, self.signer_sk, m)
+        self.assertEqual(CCA_PKC.CCA_PKC_Dec(self.eg, self.sk_enc, self.verifier_pk, c1, c2, sig), m)
 
     def test_tampered_c2_rejected(self):
         m = 12345
-        c1, c2, sig = self.cca.encrypt(self.cca.pk, m)
+        c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk_enc, self.signer_sk, m)
         # Tamper c2 — must be rejected by the signature verification
-        c2_bad = (c2 + 1) % self.cca.pk[0]
-        result = self.cca.decrypt(self.cca.sk, self.cca.pk, c1, c2_bad, sig)
+        c2_bad = (c2 + 1) % self.pk_enc[0]
+        result = CCA_PKC.CCA_PKC_Dec(self.eg, self.sk_enc, self.verifier_pk, c1, c2_bad, sig)
         self.assertIsNone(result, "Tampered ciphertext must be rejected")
 
     def test_tampered_c1_rejected(self):
         m = 6789
-        c1, c2, sig = self.cca.encrypt(self.cca.pk, m)
-        c1_bad = (c1 + 1) % self.cca.pk[0]
-        result = self.cca.decrypt(self.cca.sk, self.cca.pk, c1_bad, c2, sig)
+        c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk_enc, self.signer_sk, m)
+        c1_bad = (c1 + 1) % self.pk_enc[0]
+        result = CCA_PKC.CCA_PKC_Dec(self.eg, self.sk_enc, self.verifier_pk, c1_bad, c2, sig)
         self.assertIsNone(result)
 
 

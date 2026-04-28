@@ -19,6 +19,14 @@ def crt(residues, moduli):
         x += a * Mi * _mod_inverse(Mi,m)
     return x % N
 
+def rsa_dec_crt(sk, c):
+    """Garner's Algorithm for CRT-based RSA Decryption."""
+    N, d, p, q, dp, dq, q_inv = sk
+    mp = _fast_pow(c, dp, p)
+    mq = _fast_pow(c, dq, q)
+    h = (q_inv * ((mp - mq) % p + p)) % p
+    return mq + h * q
+
 def integer_nth_root(n, k):
     """Newton's method integer nth root."""
     if n == 0: return 0
@@ -38,6 +46,34 @@ def demo_pa14():
     res = crt([2,3,2],[3,5,7])
     print(f"  CRT(2 mod 3, 3 mod 5, 2 mod 7) = {res} (expected 23)")
 
+    print(f"\n  [Garner's Algorithm: Correctness & Performance]")
+    rsa_test = RSA(bits=1024)
+    # 1. Correctness on 100 random messages
+    correct = 0
+    for _ in range(100):
+        m_rand = secrets.randbelow(rsa_test.N)
+        c_rand = rsa_test.encrypt(m_rand)
+        m_std = rsa_test.decrypt(c_rand)
+        m_crt = rsa_dec_crt(rsa_test.sk, c_rand)
+        if m_std == m_crt: correct += 1
+    print(f"  Correctness test: {correct}/100 messages matched standard decrypt.")
+
+    # 2. Performance benchmark
+    for bits in [1024, 2048]:
+        r_bench = RSA(bits=bits)
+        c_bench = r_bench.encrypt(42)
+        
+        t0 = time.time()
+        for _ in range(1000): r_bench.decrypt(c_bench)
+        t_std = time.time() - t0
+        
+        t0 = time.time()
+        for _ in range(1000): rsa_dec_crt(r_bench.sk, c_bench)
+        t_crt = time.time() - t0
+        
+        speedup = t_std / t_crt if t_crt > 0 else 0
+        print(f"  {bits}-bit RSA 1000 decryptions -> Std: {t_std:.3f}s, CRT: {t_crt:.3f}s. Speedup: {speedup:.2f}x")
+
     # Håstad broadcast attack: same small m, e=3, three different moduli.
     rsa_list = [RSA(bits=256) for _ in range(3)]
     m = 42
@@ -50,6 +86,12 @@ def demo_pa14():
           f"{[c & 0xffffffff for c in cts]}")
     print(f"  CRT(c1, c2, c3) mod N1·N2·N3 = m^3 as integer, then cube-root.")
     print(f"  Recovered m = {recovered}, match = {m == recovered} ✓")
+    
+    print(f"\n  [Attack Boundary Analysis]")
+    print(f"  Håstad's attack with e=3 succeeds strictly when m^3 < N1*N2*N3.")
+    print(f"  If three 1024-bit moduli are used, N1*N2*N3 is roughly 3072 bits.")
+    print(f"  Therefore, any message m < 2^1024 (i.e. length ≤ 128 bytes) is vulnerable.")
+    print(f"  Messages with m^3 >= N1*N2*N3 wrap around the combined modulus, preventing a simple integer cube root from recovering m.")
 
     # PKCS defense: each sender pads with random bytes, destroying shared m
     print(f"\n  [Defense: PKCS#1 v1.5 padding per recipient]")
@@ -84,31 +126,56 @@ def demo_pa14():
     print("✓ PA#14 complete.")
 
 # ─────────── PA #15 — Digital Signatures ───────────
-class RSA_Sign:
-    def __init__(self, rsa: RSA, hash_fn=None):
-        self.rsa = rsa
-        self._hash = hash_fn or DLP_Hash()
 
-    def sign(self, msg: bytes) -> int:
-        h = self._hash.hash(msg)
-        h_int = int.from_bytes(h, 'big') % self.rsa.N
-        return self.rsa.decrypt(h_int)  # σ = H(m)^d mod N
+# def Sign(sk, m: bytes) -> int:
+#     """Standard standalone RSA Sign using hash-and-sign paradigm."""
+#     N, d, p, q, dp, dq, q_inv = sk
+#     h = hashlib.sha256(m).digest()
+#     # H(m) is 256 bits (SHA-256). As long as N > 256 bits, h_int < N.
+#     # We do NOT use `% N` to avoid collisions (hash truncation flaw).
+#     h_int = int.from_bytes(h, 'big')
+#     assert h_int < N, "Modulus too small for the hash output size"
+#     # σ = H(m)^d mod N
+#     return _fast_pow(h_int, d, N)
 
-    def verify(self, msg: bytes, sig: int) -> bool:
-        h = self._hash.hash(msg)
-        h_int = int.from_bytes(h, 'big') % self.rsa.N
-        recovered = _fast_pow(sig, self.rsa.e, self.rsa.N)
-        return recovered == h_int
+# def Verify(vk, m: bytes, sigma: int) -> bool:
+#     """Standard standalone RSA Verify."""
+#     N, e = vk
+#     h = hashlib.sha256(m).digest()
+#     h_int = int.from_bytes(h, 'big')
+#     recovered = _fast_pow(sigma, e, N)
+#     return recovered == h_int
 
+def Sign(sk, m: bytes, hash_fn=None) -> int:
+    """Standard standalone RSA Sign using hash-and-sign paradigm."""
+    N, d, p, q, dp, dq, q_inv = sk
+    from pa8_9_10.hash_hmac import DLP_Hash_Wide
+    hasher = hash_fn or DLP_Hash_Wide()
+    h = hasher.hash(m) 
+    
+    h_int = int.from_bytes(h, 'big')
+    assert h_int < N, "Modulus too small for the hash output size"
+    return _fast_pow(h_int, d, N)
+
+def Verify(vk, m: bytes, sigma: int, hash_fn=None) -> bool:
+    """Standard standalone RSA Verify."""
+    N, e = vk
+    from pa8_9_10.hash_hmac import DLP_Hash_Wide
+    hasher = hash_fn or DLP_Hash_Wide()
+    h = hasher.hash(m)
+    
+    h_int = int.from_bytes(h, 'big')
+    recovered = _fast_pow(sigma, e, N)
+    return recovered == h_int
 def demo_pa15():
     print("="*60); print("PA #15 — Digital Signatures"); print("="*60)
-    rsa = RSA(bits=512); signer = RSA_Sign(rsa)
+    rsa = RSA(bits=512)
     msg = b"Sign this message"
-    sig = signer.sign(msg)
+    sig = Sign(rsa.sk, msg)
     print(f"  Signature: {hex(sig)[:24]}…")
-    print(f"  Verify:    {signer.verify(msg, sig)} ✓")
+    print(f"  Verify:    {Verify(rsa.pk, msg, sig)} ✓")
     # Tamper test
-    print(f"  Tampered:  {signer.verify(b'tampered!', sig)} ✗")
+    print(f"  Tampered:  {Verify(rsa.pk, b'tampered!', sig)} ✗")
     # Multiplicative forgery on raw RSA (no hash)
     print("\n  [Raw RSA multiplicative forgery]")
     m1=3; m2=7
@@ -117,6 +184,29 @@ def demo_pa15():
     s12=s1*s2 % rsa.N
     valid=_fast_pow(s12,rsa.e,rsa.N)==(m1*m2)%rsa.N
     print(f"  Forge σ(m1·m2) from σ(m1),σ(m2): {valid} ← WHY we hash-then-sign!")
+    print("\n  [EUF-CMA Game Simulation]")
+    print(f"  Adversary is given 50 queries to a signing oracle...")
+    
+    seen_msgs = set()
+    for i in range(50):
+        # Oracle queries
+        q_msg = f"Message {i}".encode()
+        seen_msgs.add(q_msg)
+        _ = Sign(rsa.sk, q_msg)  # Adversary sees the signature
+        
+    print(f"  Adversary attempts to forge signature for m* = 'Forged message'")
+    m_star = b"Forged message"
+    
+    # Adversary tries a random signature
+    sig_star = secrets.randbelow(rsa.N)
+    
+    # Check win condition: m* not in seen_msgs AND valid signature
+    is_new = m_star not in seen_msgs
+    is_valid = Verify(rsa.pk, m_star, sig_star)
+    print(f"  Is m* new? {is_new}")
+    print(f"  Is forgery valid? {is_valid}")
+    print(f"  Adversary wins? {is_new and is_valid} (Overwhelming probability of failure)")
+
     print("✓ PA#15 complete.")
 
 # ─────────── PA #16 — ElGamal ───────────
@@ -125,22 +215,40 @@ class ElGamal:
         dh = DH(bits)
         self.p = dh.p; self.g = dh.g; self.q = dh.q
 
+    def encode_group(self, m: int) -> int:
+        """Map a message 0 <= m < q-1 into the subgroup G of quadratic residues."""
+        m_shifted = m + 1
+        assert 0 < m_shifted <= self.q, "Message too large"
+        if _fast_pow(m_shifted, self.q, self.p) == 1:
+            return m_shifted
+        else:
+            return self.p - m_shifted
+
+    def decode_group(self, m_encoded: int) -> int:
+        """Decode a subgroup element back to the original message."""
+        if m_encoded <= self.q:
+            return m_encoded - 1
+        else:
+            return (self.p - m_encoded) - 1
+
     def keygen(self):
         x = _rand_exp(self.q)
         h = _fast_pow(self.g, x, self.p)  # public key h = g^x
-        return {'sk': x, 'pk': (self.p, self.g, self.q, h)}
+        return {'sk': (x, self.p), 'pk': (self.p, self.g, self.q, h)}
 
     def encrypt(self, pk, m: int):
         p,g,q,h = pk
         r = _rand_exp(q)
         c1 = _fast_pow(g, r, p)
-        c2 = m * _fast_pow(h, r, p) % p
+        m_group = self.encode_group(m)
+        c2 = m_group * _fast_pow(h, r, p) % p
         return c1, c2
 
-    def decrypt(self, sk_x, pk, c1, c2):
-        p,g,q,h = pk
-        s = _fast_pow(c1, sk_x, p)
-        return c2 * _mod_inverse(s, p) % p
+    def decrypt(self, sk, c1, c2):
+        x, p = sk
+        s = _fast_pow(c1, x, p)
+        m_group = c2 * _mod_inverse(s, p) % p
+        return self.decode_group(m_group)
 
     def malleability_demo(self, pk, c1, c2):
         """Given Enc(m) = (c1,c2), produce Enc(2m) = (c1, 2*c2 mod p)."""
@@ -166,21 +274,35 @@ class ElGamal_IND_CPA_Game:
         self.eg = eg
 
     # ── Honest (random-guess) adversary — should have negligible advantage ──
-    def random_guess_adversary(self, n_rounds: int = 50) -> dict:
+    def adversary_choose(self, pk) -> tuple:
+        p, g, q, h = pk
+        m0 = 1 + secrets.randbelow(q - 1)
+        m1 = 1 + secrets.randbelow(q - 1)
+        return m0, m1
+
+    def adversary_guess(self, pk, c_star, state) -> int:
+        return secrets.randbits(1)
+
+    def run_cpa_game(self, n_rounds: int = 50) -> dict:
         wins = 0
         for _ in range(n_rounds):
             keys = self.eg.keygen()
             sk, pk = keys['sk'], keys['pk']
-            p = pk[0]
-            # CSPRNG-driven challenge — secrets.randbelow / randbits use os.urandom.
-            m0 = 1 + secrets.randbelow(p - 1)
-            m1 = 1 + secrets.randbelow(p - 1)
+            
+            # Adversary outputs two messages
+            m0, m1 = self.adversary_choose(pk)
+            
+            # Challenger flips bit and encrypts
             b = secrets.randbits(1)
             mb = m0 if b == 0 else m1
-            c1, c2 = self.eg.encrypt(pk, mb)
-            b_guess = secrets.randbits(1)
+            c_star = self.eg.encrypt(pk, mb)
+            
+            # Adversary guesses the bit
+            b_guess = self.adversary_guess(pk, c_star, (m0, m1))
+            
             if b_guess == b:
                 wins += 1
+                
         adv = abs(wins / n_rounds - 0.5)
         return {
             'rounds': n_rounds, 'wins': wins,
@@ -189,41 +311,45 @@ class ElGamal_IND_CPA_Game:
         }
 
     # ── DLP-breaking adversary — wins every round when q is small enough ──
+    def dlp_adversary_guess(self, pk, c_star, state) -> tuple:
+        p, g, q, h = pk
+        m0, m1 = state
+        c1, c2 = c_star
+        # Recover sk by solving DLP (only feasible for small q)
+        sk_x = None
+        iters = 0
+        for x in range(1, q):
+            iters += 1
+            if _fast_pow(g, x, p) == h:
+                sk_x = x
+                break
+        if sk_x is None: return 0, iters
+        
+        # Decrypt to see which message it was
+        dec_m = self.eg.decrypt((sk_x, p), c1, c2)
+        return (0 if dec_m == m0 else 1), iters
+
     def dlp_breaking_adversary(self, n_rounds: int = 30) -> dict:
         """
         Adversary who solves the discrete log to recover sk = log_g(h), then
-        decrypts the challenge ciphertext directly. Wins with probability 1
-        whenever q is small enough to brute-force in a reasonable time.
+        decrypts the challenge ciphertext directly.
         """
         wins = 0
         total_iters = 0
         for _ in range(n_rounds):
             keys = self.eg.keygen()
             sk, pk = keys['sk'], keys['pk']
-            p, g, q, h = pk
-            # Brute-force the secret key x such that g^x = h mod p.
-            cur, x_found = g, None
-            for x in range(1, q):
-                if cur == h:
-                    x_found = x
-                    break
-                cur = cur * g % p
-                total_iters += 1
-            if x_found is None:
-                # Group too large to brute-force in this loop; abstain.
-                continue
-            # Adversary picks distinguishable messages and decrypts the challenge.
-            m0 = 1
-            m1 = 2
+            m0, m1 = self.adversary_choose(pk)
             b = secrets.randbits(1)
             mb = m0 if b == 0 else m1
-            c1, c2 = self.eg.encrypt(pk, mb)
-            s = _fast_pow(c1, x_found, p)
-            recovered = c2 * _mod_inverse(s, p) % p
-            b_guess = 0 if recovered == m0 else 1
+            c_star = self.eg.encrypt(pk, mb)
+            
+            b_guess, iters = self.dlp_adversary_guess(pk, c_star, (m0, m1))
+            total_iters += iters
             if b_guess == b:
                 wins += 1
-        adv = abs(wins / n_rounds - 0.5) if n_rounds else 0.0
+                
+        adv = abs(wins / n_rounds - 0.5)
         return {
             'rounds': n_rounds, 'wins': wins,
             'advantage': round(adv, 4),
@@ -233,25 +359,34 @@ class ElGamal_IND_CPA_Game:
 
 
 def demo_pa16():
-    print("="*60); print("PA #16 — ElGamal PKC"); print("="*60)
-    eg = ElGamal(bits=128)
+    print("="*60); print("PA #16 — ElGamal Public-Key Cryptosystem"); print("="*60)
+    eg = ElGamal(bits=256)
     keys = eg.keygen()
-    sk=keys['sk']; pk=keys['pk']
+    sk, pk = keys['sk'], keys['pk']
     m = 1234
-    c1,c2 = eg.encrypt(pk, m)
-    dec = eg.decrypt(sk, pk, c1, c2)
-    print(f"  Encrypt/Decrypt m={m}: {dec==m} ✓")
+    c1, c2 = eg.encrypt(pk, m)
+    dec = eg.decrypt(sk, c1, c2)
+    print(f"  ElGamal Encrypt/Decrypt (256-bit): m={m} -> c1={hex(c1)[:16]}…, dec={dec} ✓")
     # Malleability
     c1m, c2m = eg.malleability_demo(pk, c1, c2)
-    dec_m = eg.decrypt(sk, pk, c1m, c2m)
-    print(f"  Malleability: Dec(Enc(2m)) = {dec_m} = 2×{m} = {2*m}, match={dec_m==2*m} ✓")
+    # When m is modified via malleability (2m), it will not correctly decode as 2m 
+    # unless 2m and m share the same quadratic residue status. However, the ciphertext
+    # malleability property still exists fundamentally. We demonstrate it by decoding 
+    # the un-mapped value.
+    p = pk[0]
+    s = _fast_pow(c1m, sk[0], p)
+    m_group_tampered = c2m * _mod_inverse(s, p) % p
+    
+    # We expect m_group_tampered to be exactly 2 * (encoded_m) mod p
+    m_encoded = eg.encode_group(m)
+    print(f"  Malleability: c2 multiplied by 2 -> underlying group element doubled? "
+          f"{m_group_tampered == (2 * m_encoded % p)}")
 
-    # ── IND-CPA game: large group ──
-    print("\n  [IND-CPA game over 128-bit group — DDH presumed hard]")
-    game_big = ElGamal_IND_CPA_Game(eg)
-    res_big = game_big.random_guess_adversary(n_rounds=40)
-    print(f"  Random-guess adversary: {res_big['wins']}/{res_big['rounds']} wins, "
-          f"advantage={res_big['advantage']} ≈ 0  → secure ✓")
+    print(f"\n  [IND-CPA Game: Security under DDH]")
+    game = ElGamal_IND_CPA_Game(eg)
+    res_honest = game.run_cpa_game(n_rounds=50)
+    print(f"  Random-guess adversary: {res_honest['wins']}/{res_honest['rounds']} wins, "
+          f"advantage={res_honest['advantage']} ≈ 0  → secure ✓")
 
     # ── IND-CPA game: tiny group where DLP/DDH is brute-forceable ──
     print("\n  [IND-CPA game over tiny group (q≈2^10) — DLP solvable, DDH broken]")

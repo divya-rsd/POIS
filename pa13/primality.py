@@ -10,7 +10,7 @@ def _mod_exp(b,e,m):
         e>>=1; b=b*b%m
     return r
 
-def miller_rabin(n: int, k: int = 40) -> bool:
+def miller_rabin(n: int, k: int = 40, trace: list = None) -> bool:
     """Returns True if n is probably prime, False if definitely composite.
 
     Witnesses are drawn from a CSPRNG (secrets.randbelow → os.urandom),
@@ -26,23 +26,41 @@ def miller_rabin(n: int, k: int = 40) -> bool:
         # secrets.randbelow(N) returns in [0, N) drawn from os.urandom — CSPRNG.
         a = 2 + secrets.randbelow(n - 3)        # a ∈ [2, n-2]
         x = _mod_exp(a, d, n)
+        if trace is not None:
+            trace.append({"a": a, "x": x, "result": "continue" if (x == 1 or x == n-1) else "check_s"})
+            
         if x == 1 or x == n-1: continue
+        
+        is_composite = True
         for _ in range(s-1):
             x = x*x % n
-            if x == n-1: break
-        else:
+            if trace is not None:
+                trace[-1]["x"] = x  # update last x seen in this round
+            if x == n-1:
+                is_composite = False
+                if trace is not None: trace[-1]["result"] = "continue"
+                break
+        
+        if is_composite:
+            if trace is not None: trace[-1]["result"] = "composite"
             return False
+            
     return True
 
 def is_prime(n: int) -> bool:
     return miller_rabin(n, 40)
 
-def gen_prime(bits: int) -> int:
+def gen_prime(bits: int, track_candidates: list = None) -> int:
     """Generate a random probable prime of given bit length."""
+    candidates = 0
     while True:
+        candidates += 1
         n = int.from_bytes(os.urandom(bits//8), 'big')
         n |= (1 << (bits-1)) | 1  # ensure top bit set and odd
         if miller_rabin(n, 40):
+            assert miller_rabin(n, 100), "100-round sanity check failed!"
+            if track_candidates is not None:
+                track_candidates.append(candidates)
             return n
 
 def gen_safe_prime(bits: int) -> tuple:
@@ -59,10 +77,22 @@ def demo():
     for n,label in tests:
         print(f"  {n}: {'PRIME' if is_prime(n) else 'COMPOSITE'} (expected: {label})")
     print("\n  Carmichael 561 Fermat test (should wrongly say prime):")
-    print(f"  Fermat(561,2): {_mod_exp(2,559,561)==1} (wrong!), Miller-Rabin: {miller_rabin(561)} (correct ✓)")
-    print("\n  Generating 512-bit prime…")
-    t0=time.time(); p=gen_prime(512); elapsed=time.time()-t0
-    print(f"  {p.bit_length()}-bit prime in {elapsed:.3f}s")
-    print("✓ PA#13 complete.")
+    print(f"  Fermat(561,2): {_mod_exp(2,560,561)==1} (wrong!), Miller-Rabin: {miller_rabin(561)} (correct ✓)")
+    
+    print("\n  [Performance Benchmark] Generating Primes...")
+    for bits in [512, 1024, 2048]:
+        counts = []
+        t0 = time.time()
+        p = gen_prime(bits, track_candidates=counts)
+        elapsed = time.time() - t0
+        actual_count = counts[0]
+        # PNT says average distance between primes near 2^b is ln(2^b) = b * ln(2).
+        # Since we only test odd numbers, the average candidates is half of that: (b * ln(2)) / 2
+        theory_count = int(bits * math.log(2) / 2)
+        print(f"  {bits}-bit prime generated in {elapsed:.3f}s")
+        print(f"    Candidates sampled: {actual_count}")
+        print(f"    Theoretical avg (odds only): ~{theory_count}")
+        
+    print("\n✓ PA#13 complete.")
 
 if __name__ == "__main__": demo()

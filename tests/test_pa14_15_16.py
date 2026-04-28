@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pa14_15_16.crt_sig_elgamal import (
-    crt, integer_nth_root, hastad_attack, RSA_Sign, ElGamal,
+    crt, integer_nth_root, hastad_attack, Sign, Verify, ElGamal,
 )
 from pa12.rsa import RSA, _fast_pow
 
@@ -53,21 +53,20 @@ class TestRSASign(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rsa = RSA(bits=512)
-        cls.signer = RSA_Sign(cls.rsa)
 
     def test_verify_valid_signature(self):
         m = b"sign me"
-        sig = self.signer.sign(m)
-        self.assertTrue(self.signer.verify(m, sig))
+        sig = Sign(self.rsa.sk, m)
+        self.assertTrue(Verify(self.rsa.pk, m, sig))
 
     def test_verify_rejects_tampered_message(self):
         m = b"original"
-        sig = self.signer.sign(m)
-        self.assertFalse(self.signer.verify(b"tampered", sig))
+        sig = Sign(self.rsa.sk, m)
+        self.assertFalse(Verify(self.rsa.pk, b"tampered", sig))
 
     def test_verify_rejects_random_signature(self):
         m = b"original"
-        self.assertFalse(self.signer.verify(m, 12345))
+        self.assertFalse(Verify(self.rsa.pk, m, 12345))
 
 
 class TestElGamal(unittest.TestCase):
@@ -80,7 +79,7 @@ class TestElGamal(unittest.TestCase):
         sk, pk = keys['sk'], keys['pk']
         for m in [1, 2, 100, 12345]:
             c1, c2 = self.eg.encrypt(pk, m)
-            self.assertEqual(self.eg.decrypt(sk, pk, c1, c2), m)
+            self.assertEqual(self.eg.decrypt(sk, c1, c2), m)
 
     def test_randomized(self):
         keys = self.eg.keygen()
@@ -95,8 +94,13 @@ class TestElGamal(unittest.TestCase):
         m = 100
         c1, c2 = self.eg.encrypt(pk, m)
         c1m, c2m = self.eg.malleability_demo(pk, c1, c2)
-        # Decrypts to 2m
-        self.assertEqual(self.eg.decrypt(sk, pk, c1m, c2m), 2 * m)
+        
+        m_encoded = self.eg.encode_group(m)
+        p = self.eg.p
+        from pa12.rsa import _fast_pow, _mod_inverse
+        s = _fast_pow(c1m, sk[0], p)
+        m_group_tampered = c2m * _mod_inverse(s, p) % p
+        self.assertEqual(m_group_tampered, (2 * m_encoded) % p)
 
 
 if __name__ == "__main__":

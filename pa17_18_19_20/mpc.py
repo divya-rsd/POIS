@@ -6,7 +6,7 @@ PA #20 — All 2-Party Secure Computation (Millionaire's, Equality, Addition)
 """
 import os, sys, secrets, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pa14_15_16.crt_sig_elgamal import ElGamal, RSA_Sign
+from pa14_15_16.crt_sig_elgamal import ElGamal, Sign, Verify
 from pa12.rsa import RSA, _mod_inverse, _fast_pow
 from pa11.dh import _rand_exp
 
@@ -15,18 +15,18 @@ class CCA_PKC:
     """Encrypt-then-Sign (Signcrypt): CCA2-secure PKC."""
     
     @staticmethod
-    def CCA_PKC_Enc(eg: ElGamal, pk_enc, signer: RSA_Sign, m: int) -> tuple:
+    def CCA_PKC_Enc(eg: ElGamal, pk_enc, signer_sk, m: int) -> tuple:
         """First encrypt m with ElGamal (PA#16), then sign ciphertext with digital signature (PA#15)."""
         c1, c2 = eg.encrypt(pk_enc, m)
-        sig = signer.sign(f"{c1},{c2}".encode())
+        sig = Sign(signer_sk, f"{c1},{c2}".encode())
         return c1, c2, sig
 
     @staticmethod
-    def CCA_PKC_Dec(eg: ElGamal, sk_enc, pk_enc, verifier: RSA_Sign, c1, c2, sig):
+    def CCA_PKC_Dec(eg: ElGamal, sk_enc, verifier_pk, c1, c2, sig):
         """Call Verify first; if signature is invalid return ⊥; otherwise call Dec."""
-        if not verifier.verify(f"{c1},{c2}".encode(), sig):
+        if not Verify(verifier_pk, f"{c1},{c2}".encode(), sig):
             return None  # ⊥
-        return eg.decrypt(sk_enc, pk_enc, c1, c2)
+        return eg.decrypt(sk_enc, c1, c2)
 
 
 # ─────────── PA #17 — IND-CCA2 Game ───────────
@@ -51,7 +51,8 @@ class IND_CCA2_Game:
     def __init__(self, bits=128):
         self.eg = ElGamal(bits)
         self.rsa = RSA(bits*2)
-        self.signer = RSA_Sign(self.rsa)
+        self.signer_sk = self.rsa.sk
+        self.verifier_pk = self.rsa.pk
         self.keys = self.eg.keygen()
         self.sk = self.keys['sk']; self.pk = self.keys['pk']
         self.oracle_calls = 0
@@ -62,7 +63,7 @@ class IND_CCA2_Game:
         self.oracle_calls += 1
         if (c1, c2, sig) == challenge:
             return None  # forbidden query — challenger refuses
-        result = CCA_PKC.CCA_PKC_Dec(self.eg, self.sk, self.pk, self.signer, c1, c2, sig)
+        result = CCA_PKC.CCA_PKC_Dec(self.eg, self.sk, self.verifier_pk, c1, c2, sig)
         if result is None:
             self.oracle_rejections += 1
         return result
@@ -85,7 +86,7 @@ class IND_CCA2_Game:
                 m1 = 2 + secrets.randbelow(max(1, p // 4 - 2))
             b = secrets.randbits(1)
             mb = m0 if b == 0 else m1
-            c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk, self.signer, mb)
+            c1, c2, sig = CCA_PKC.CCA_PKC_Enc(self.eg, self.pk, self.signer_sk, mb)
             challenge = (c1, c2, sig)
             # Multiplicative-malleability attempt — same trick that breaks plain ElGamal
             mutated_c2 = (2 * c2) % p
@@ -117,11 +118,12 @@ def demo_pa17():
     sk_enc, pk_enc = receiver_keys['sk'], receiver_keys['pk']
     
     rsa = RSA(bits=256)
-    signer = RSA_Sign(rsa)
+    signer_sk = rsa.sk
+    verifier_pk = rsa.pk
     
     m = 9999
-    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer, m)
-    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, signer, c1, c2, sig)
+    c1, c2, sig = CCA_PKC.CCA_PKC_Enc(eg, pk_enc, signer_sk, m)
+    dec = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, verifier_pk, c1, c2, sig)
     print(f"  Encrypt/Decrypt m={m}: {dec==m} ✓")
 
     # ── Multiplicative-malleability attack: works on plain ElGamal, blocked here ──
@@ -129,11 +131,11 @@ def demo_pa17():
     p = pk_enc[0]
     plain_c1, plain_c2 = eg.encrypt(pk_enc, m)
     plain_c2_mauled = (2 * plain_c2) % p
-    plain_dec = eg.decrypt(sk_enc, pk_enc, plain_c1, plain_c2_mauled)
+    plain_dec = eg.decrypt(sk_enc, plain_c1, plain_c2_mauled)
     print(f"  Plain ElGamal: Enc(m={m}) → maul c2 → Dec gives {plain_dec} (= 2m? {plain_dec == 2*m}) ✗ broken")
 
     cca_c2_mauled = (2 * c2) % p
-    cca_dec_mauled = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, pk_enc, signer, c1, cca_c2_mauled, sig)
+    cca_dec_mauled = CCA_PKC.CCA_PKC_Dec(eg, sk_enc, verifier_pk, c1, cca_c2_mauled, sig)
     print(f"  Signcrypt:     Enc(m={m}) → maul c2 → Dec gives {cca_dec_mauled} (⊥ = rejected) ✓ blocked")
 
     # ── Formal IND-CCA2 game ──
@@ -217,7 +219,7 @@ class OT_1of2:
     def receiver_step2(self, state, c0, c1) -> int:
         b = state['b']; sk_b = state['sk_b']; pk_b = state['pk_b']
         cb = c0 if b == 0 else c1
-        return self._eg.decrypt(sk_b, pk_b, *cb)
+        return self._eg.decrypt(sk_b, *cb)
 
     def dlp_break_other_message(self, state, c0, c1, m_real_other: int, max_iters: int = 100000) -> dict:
         """
@@ -292,7 +294,7 @@ def demo_pa18():
     print("  Use a tiny ~14-bit q so the brute force completes in seconds.")
     ot_tiny = OT_1of2(bits=14)
     b = 0
-    m_known, m_other = 1234, 5678
+    m_known, m_other = 12, 56
     pk0, pk1, state = ot_tiny.receiver_step1(b)
     c0, c1 = ot_tiny.sender_step(pk0, pk1, m_known, m_other)
     got = ot_tiny.receiver_step2(state, c0, c1)
