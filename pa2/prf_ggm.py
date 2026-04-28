@@ -10,8 +10,11 @@ Implements:
 """
 
 import os
+import sys
 import random
 from typing import Callable, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa1.owf_prg import AES128, PRG_from_OWF, OWF_DLP, StatisticalTests
 
 

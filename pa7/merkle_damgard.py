@@ -16,15 +16,19 @@ def md_pad(msg: bytes, block_size: int = BLOCK_SIZE) -> bytes:
     return msg + length_field
 
 def xor_compress(chaining_value: bytes, block: bytes) -> bytes:
-    """Toy XOR-based compression for testing the MD framework."""
+    """
+    Toy XOR-fold compression for testing the MD framework.
+
+    Folds the 8-byte block into 4 bytes by XORing the two halves, then
+    XORs the chaining value. This is INTENTIONALLY non-injective on the
+    block (both halves can vary independently while folding to the same
+    4-byte value) so that the PA#7 collision-propagation demo has
+    findable compression-level collisions.
+    """
     cv = (chaining_value + b'\x00' * 8)[:OUTPUT_SIZE]
-    blk = (block + b'\x00' * 8)[:OUTPUT_SIZE]
-    mixed = bytes(a^b for a,b in zip(cv,blk))
-    # Simple avalanche: rotate and XOR
-    out = bytearray(OUTPUT_SIZE)
-    for i in range(OUTPUT_SIZE):
-        out[i] = (mixed[i] ^ (mixed[(i+1)%OUTPUT_SIZE] << 1)) & 0xFF
-    return bytes(out)
+    full = (block + b'\x00' * 8)[:8]
+    folded = bytes(full[i] ^ full[i + 4] for i in range(OUTPUT_SIZE))
+    return bytes(a ^ b for a, b in zip(cv, folded))
 
 class MerkleDamgard:
     """Generic Merkle-Damgård construction over any compression function."""
@@ -87,33 +91,25 @@ def demo():
     for msg in [b"", b"hello", b"A"*64]:
         h = md.hash(msg)
         print(f"  H({msg[:20]!r}…) = {h.hex()}")
-    # Collision propagation: construct a compression-level collision and show it
-    # lifts to an MD-level collision on different messages.
+    # Collision propagation: pick two distinct 8-byte blocks whose halves XOR
+    # to the same 4-byte fold. The toy compression is XOR-fold, so this
+    # immediately collides under compress(IV, ·).
     print("\n  [Collision propagation]")
-    # Find two distinct (cv1, blk1) != (cv2, blk2) with same compress() output.
     cv = b'\x00' * OUTPUT_SIZE
-    # Because xor_compress is linear-ish, blocks that XOR to the same "mix" collide.
-    # Force it: pick two different blocks producing identical compress outputs
-    # by searching briefly.
-    found = None
-    seen = {}
-    for i in range(256):
-        blk = bytes([i]) + b'\x00' * (BLOCK_SIZE - 1)
-        h = xor_compress(cv, blk)
-        if h in seen and seen[h] != blk:
-            found = (seen[h], blk, h)
-            break
-        seen[h] = blk
-    if found:
-        blk1, blk2, h = found
-        # Two *different* single-block messages whose compression outputs agree.
-        # In the MD construction with different messages, padding differs too,
-        # so we show the compression-level collision directly.
-        print(f"  Compress collision: blk1={blk1.hex()} ≠ blk2={blk2.hex()}")
-        print(f"  compress(IV, blk1) = compress(IV, blk2) = {h.hex()} ✓")
-        print(f"  (Any collision in the compression fn lifts to a collision in MD.)")
-    else:
-        print("  No collision found in quick search (demo only)")
+    blk1 = b'\xAA\xBB\xCC\xDD' + b'\x00\x00\x00\x00'   # halves: AABBCCDD ^ 00000000 = AABBCCDD
+    blk2 = b'\x55\x44\x33\x22' + b'\xFF\xFF\xFF\xFF'   # halves: 55443322 ^ FFFFFFFF = AABBCCDD
+    h1 = xor_compress(cv, blk1)
+    h2 = xor_compress(cv, blk2)
+    print(f"  Compress collision: blk1={blk1.hex()} ≠ blk2={blk2.hex()}")
+    print(f"  compress(IV, blk1)={h1.hex()}, compress(IV, blk2)={h2.hex()}, "
+          f"match={h1 == h2} ✓")
+    # Lift to full MD: same-length messages so MD-strengthening padding is identical.
+    md = MerkleDamgard()
+    H1 = md.hash(blk1)
+    H2 = md.hash(blk2)
+    print(f"  MD-level collision: H({blk1.hex()[:8]}…)={H1.hex()}, "
+          f"H({blk2.hex()[:8]}…)={H2.hex()}, match={H1 == H2} ✓")
+    print(f"  (Compression collision lifts to full MD hash collision.)")
     trace = md.hash_with_trace(b"test message here!")
     print(f"\n  Trace ({trace['n_blocks']} blocks):")
     for t in trace['trace'][:4]:

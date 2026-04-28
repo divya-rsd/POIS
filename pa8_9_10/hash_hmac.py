@@ -10,13 +10,18 @@ from pa7.merkle_damgard import MerkleDamgard, md_pad, OUTPUT_SIZE, BLOCK_SIZE
 from pa3.cpa_enc import CPA_Enc
 
 # ─────────── PA #8 — DLP Hash ───────────
-# A 64-bit safe prime p = 2q + 1 where q is also prime. q is a 63-bit prime.
-# Output therefore fits in 8 bytes; collision resistance ≈ 2^32 by birthday bound.
-# The previous 31-bit prime caused trivial collisions when the inputs differed
-# only in bytes that the truncation step discarded.
-_P8 = 0xFFFFFFFFFFFFFFC5     # 64-bit prime  (NOT a safe prime in general; used as raw modulus)
-_Q8 = (_P8 - 1) // 2          # subgroup-order placeholder (not necessarily prime here)
-_G8 = 5
+# Per the PA#8 spec we need a safe-prime group: p = 2q + 1 with both p and q
+# prime. Collisions in h(x, y) = g^x · h_hat^y mod p must reduce to DLP, so
+# x and y must reduce mod the SUBGROUP ORDER q (not p-1). Output fits in 8
+# bytes; collision resistance ≈ 2^32 by the birthday bound.
+#
+# This 64-bit safe prime is precomputed (verified prime via Miller-Rabin):
+#   q = 0x447B704060D159B1  (63-bit prime)
+#   p = 2q + 1 = 0x88F6E080C1A2B363  (64-bit safe prime)
+#   g = 3   (order q: 3 != 1, 3^2 != 1 mod p, 3^q == 1 mod p)
+_Q8 = 0x447B704060D159B1
+_P8 = 2 * _Q8 + 1
+_G8 = 3
 OUT_BYTES = 8                 # bytes of hash output (fits one element of Z_p)
 
 
@@ -45,16 +50,18 @@ class DLP_Compress:
     sat in the discarded suffix.
     """
 
-    def __init__(self, p=_P8, g=_G8, alpha=None):
+    def __init__(self, p=_P8, g=_G8, q=_Q8, alpha=None):
         self.p = p
         self.g = g
-        self.alpha = alpha if alpha is not None else random.randint(2, p - 2)
+        self.q = q   # subgroup order
+        # alpha is in [2, q-1] so g^alpha stays in the order-q subgroup.
+        self.alpha = alpha if alpha is not None else random.randint(2, q - 2)
         self.h_hat = _mod_exp(g, self.alpha, p)
 
     def compress(self, x_bytes: bytes, y_bytes: bytes) -> bytes:
-        # Use ALL provided bytes; reduce mod (p−1) at the end.
-        x = int.from_bytes(x_bytes, 'big') % (self.p - 1)
-        y = int.from_bytes(y_bytes, 'big') % (self.p - 1)
+        # Reduce inputs mod q (the SUBGROUP ORDER) so collisions reduce to DLP.
+        x = int.from_bytes(x_bytes, 'big') % self.q
+        y = int.from_bytes(y_bytes, 'big') % self.q
         result = _mod_exp(self.g, x, self.p) * _mod_exp(self.h_hat, y, self.p) % self.p
         return result.to_bytes(OUT_BYTES, 'big')
 
