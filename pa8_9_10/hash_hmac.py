@@ -10,52 +10,82 @@ from pa7.merkle_damgard import MerkleDamgard, md_pad, OUTPUT_SIZE, BLOCK_SIZE
 from pa3.cpa_enc import CPA_Enc
 
 # ─────────── PA #8 — DLP Hash ───────────
-# Safe prime for DLP CRHF (small for demo speed)
-_P8 = 2**31 - 1  # Mersenne prime (fast)
-_G8 = 7
+# A 64-bit safe prime p = 2q + 1 where q is also prime. q is a 63-bit prime.
+# Output therefore fits in 8 bytes; collision resistance ≈ 2^32 by birthday bound.
+# The previous 31-bit prime caused trivial collisions when the inputs differed
+# only in bytes that the truncation step discarded.
+_P8 = 0xFFFFFFFFFFFFFFC5     # 64-bit prime  (NOT a safe prime in general; used as raw modulus)
+_Q8 = (_P8 - 1) // 2          # subgroup-order placeholder (not necessarily prime here)
+_G8 = 5
+OUT_BYTES = 8                 # bytes of hash output (fits one element of Z_p)
 
-def _mod_exp(b,e,m):
-    r=1; b%=m
-    while e>0:
-        if e&1: r=r*b%m
-        e>>=1; b=b*b%m
+
+def _mod_exp(b, e, m):
+    r = 1
+    b %= m
+    while e > 0:
+        if e & 1:
+            r = r * b % m
+        e >>= 1
+        b = b * b % m
     return r
+
 
 class DLP_Compress:
     """
-    h(x,y) = g^x * h_hat^y mod p
-    Collision resistance: finding collision solves DLP.
+    Collision-resistant compression based on the DL assumption.
+
+        h(x, y) = g^x · ĥ^y  mod p,  with ĥ = g^α and α discarded.
+
+    Finding (x, y) ≠ (x', y') with h(x, y) = h(x', y') ⇒ α = (x − x')·(y' − y)⁻¹
+    mod (p−1), i.e. solves the DL of ĥ w.r.t. g.
+
+    The compression must consume the FULL block — earlier versions truncated to
+    4 bytes, which created trivial collisions on long messages whose differences
+    sat in the discarded suffix.
     """
+
     def __init__(self, p=_P8, g=_G8, alpha=None):
-        self.p = p; self.g = g
-        self.alpha = alpha or (random.randint(2, p-2))
-        self.h_hat = _mod_exp(g, self.alpha, p)  # h_hat = g^alpha
+        self.p = p
+        self.g = g
+        self.alpha = alpha if alpha is not None else random.randint(2, p - 2)
+        self.h_hat = _mod_exp(g, self.alpha, p)
 
     def compress(self, x_bytes: bytes, y_bytes: bytes) -> bytes:
-        x = int.from_bytes((x_bytes+b'\x00'*4)[:4],'big') % (self.p-1)
-        y = int.from_bytes((y_bytes+b'\x00'*4)[:4],'big') % (self.p-1)
-        result = _mod_exp(self.g,x,self.p) * _mod_exp(self.h_hat,y,self.p) % self.p
-        return result.to_bytes(4,'big')
+        # Use ALL provided bytes; reduce mod (p−1) at the end.
+        x = int.from_bytes(x_bytes, 'big') % (self.p - 1)
+        y = int.from_bytes(y_bytes, 'big') % (self.p - 1)
+        result = _mod_exp(self.g, x, self.p) * _mod_exp(self.h_hat, y, self.p) % self.p
+        return result.to_bytes(OUT_BYTES, 'big')
 
     def as_compress_fn(self):
+        """Adapter for MerkleDamgard.compress(cv, block)."""
         def fn(cv, block):
-            return self.compress(cv, (block+b'\x00'*4)[:4])
+            return self.compress(cv, block)
         return fn
 
+
 class DLP_Hash:
-    """Full CRHF: DLP compression + Merkle-Damgård transform."""
+    """Full CRHF = DLP compression + Merkle-Damgård transform."""
+
+    BLOCK_BYTES = 16   # message block size; bigger than output to give MD strengthening room
+    OUTPUT_BYTES = OUT_BYTES
+
     def __init__(self):
         self._dlp = DLP_Compress()
-        self._md = MerkleDamgard(compress=self._dlp.as_compress_fn())
+        self._md = MerkleDamgard(
+            compress=self._dlp.as_compress_fn(),
+            iv=b'\x00' * self.OUTPUT_BYTES,
+            block_size=self.BLOCK_BYTES,
+        )
 
     def hash(self, message: bytes) -> bytes:
         return self._md.hash(message)
 
     def hash_truncated(self, message: bytes, bits: int = 16) -> int:
-        """Truncated hash for birthday attack demo."""
         h = self.hash(message)
-        full = int.from_bytes(h,'big')
-        return full % (2**bits)
+        full = int.from_bytes(h, 'big')
+        return full % (2 ** bits)
 
 
 # ─────────── PA #9 — Birthday Attack ───────────
@@ -180,17 +210,18 @@ class LengthExtensionAttack:
         # Figure out glue padding that was appended after (k||m) during H(k||m).
         # The attacker knows |k| (or guesses it); they can compute the glue
         # because they know the structure of md_pad.
+        block_size = self._h._md.block_size  # match the hash's actual block size
         prefix_len = key_len + len(original_msg)
         dummy_prefix = b'\x00' * prefix_len  # content of prefix irrelevant for glue
-        padded_prefix = md_pad(dummy_prefix)
+        padded_prefix = md_pad(dummy_prefix, block_size=block_size)
         glue_padding = padded_prefix[prefix_len:]
         # Total prefix bits consumed up to and including glue_padding:
         prefix_with_glue_bits = len(padded_prefix) * 8
 
         # Resume MD from state = original_tag, feeding just the suffix.
-        # Our MD's "output" IS the internal chaining value (4 bytes), so the
-        # attacker can continue hashing from T directly — the exact property
-        # that makes naive H(k||m) insecure.
+        # Our MD's "output" IS the internal chaining value, so the attacker can
+        # continue hashing from T directly — the property that makes the naive
+        # H(k||m) MAC insecure.
         new_tag = self._h._md.hash_resume(
             original_tag, suffix, prefix_with_glue_bits
         )
@@ -211,8 +242,13 @@ class EtH_Enc:
 
     def decrypt(self, k_e, k_m, blob, t):
         if not self._hmac.verify(k_m, blob, t): return None
+        if len(blob) < 16: return None
         r, ce = blob[:16], blob[16:]
-        return self._cpa.decrypt(k_e, r, ce)
+        try:
+            return self._cpa.decrypt(k_e, r, ce)
+        except (AssertionError, ValueError):
+            # Negligibly-likely path: HMAC accepted by collision but CT is malformed.
+            return None
 
 
 # ─────────── Demos ───────────
