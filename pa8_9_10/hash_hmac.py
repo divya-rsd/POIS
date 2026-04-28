@@ -123,7 +123,8 @@ class BirthdayAttack:
         def f(x_int):
             h = self.hash_fn(x_int.to_bytes(4,'big')) % self.modulus
             return h
-        tortoise = secrets.randbelow(self.modulus)
+        start_node = secrets.randbelow(self.modulus)
+        tortoise = start_node
         hare = tortoise
         evals = 0
         while True:
@@ -133,7 +134,7 @@ class BirthdayAttack:
             if tortoise == hare:
                 break
         # Find collision
-        x1 = secrets.randbelow(self.modulus)
+        x1 = start_node
         x2 = tortoise
         steps = 0
         while f(x1) != f(x2):
@@ -165,6 +166,24 @@ class BirthdayAttack:
 _IPAD = bytes([0x36]*64)
 _OPAD = bytes([0x5c]*64)
 
+def secure_compare(t1: bytes, t2: bytes) -> bool:
+    """Constant-time comparison using XOR."""
+    if len(t1) != len(t2):
+        return False
+    result = 0
+    for b1, b2 in zip(t1, t2):
+        result |= b1 ^ b2
+    return result == 0
+
+def insecure_compare(t1: bytes, t2: bytes) -> bool:
+    """Vulnerable early-exit comparison for demonstration."""
+    if len(t1) != len(t2):
+        return False
+    for b1, b2 in zip(t1, t2):
+        if b1 != b2:
+            return False
+    return True
+
 class HMAC:
     """
     HMAC over PA#8 DLP hash.
@@ -188,7 +207,25 @@ class HMAC:
 
     def verify(self, key: bytes, msg: bytes, tag: bytes) -> bool:
         computed = self.mac(key, msg)
-        return secrets.compare_digest(computed, tag)
+        return secure_compare(computed, tag)
+
+class MAC_Hash:
+    """
+    CRHF built from a MAC (HMAC). Backward reduction: MAC => CRHF.
+    Constructs h'(cv, block) = HMAC_k(cv || block) for a fixed key.
+    """
+    def __init__(self, key: bytes = b'fixed_public_key'):
+        self.key = key
+        self.hmac = HMAC()
+        def h_prime(cv, block):
+            return self.hmac.mac(self.key, cv + block)
+        self._md = MerkleDamgard(
+            compress=h_prime,
+            iv=b'\x00' * 8, # HMAC output from DLP_Hash is 8 bytes
+            block_size=8,   # block_size = 8
+        )
+    def hash(self, message: bytes) -> bytes:
+        return self._md.hash(message)
 
 class NaiveMAC:
     """Broken: t = H(k || m) — vulnerable to length extension."""
@@ -277,6 +314,11 @@ def demo_pa9():
     print(f"  Collision found in {res['evals']} evals (expected ≈{2**8})")
     print(f"  x1={res['x1']}, x2={res['x2']}, H(x1)=H(x2)={res['hash']}")
     print(f"  Time: {elapsed:.3f}s")
+    print("  Running Floyd's cycle-finding attack (n=16 bits)…")
+    t0=time.time(); res_floyd=atk.floyd_attack(); elapsed_floyd=time.time()-t0
+    print(f"  Collision found in {res_floyd['evals']} evals")
+    print(f"  Hash collision value: {res_floyd['hash']}")
+    print(f"  Time: {elapsed_floyd:.3f}s")
     curve = atk.empirical_curve(trials=20)
     print(f"  Avg evals={curve['avg_evals']}, E[2^(n/2)]={curve['expected_2n2']}, ratio={curve['ratio']}")
     print("✓ PA#9 complete.")
@@ -287,6 +329,46 @@ def demo_pa10():
     tag = hmac.mac(key, msg)
     print(f"  HMAC tag: {tag.hex()}")
     print(f"  Verify:   {hmac.verify(key, msg, tag)} ✓")
+
+    print("\n  Constant-time comparison demo:")
+    tag1 = b"\x00" * 64
+    tag2_early = b"\x01" + b"\x00" * 63
+    tag2_late = b"\x00" * 63 + b"\x01"
+    iters = 100000
+    t0 = time.perf_counter(); 
+    for _ in range(iters): insecure_compare(tag1, tag2_early)
+    t_insec_early = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): insecure_compare(tag1, tag2_late)
+    t_insec_late = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): secure_compare(tag1, tag2_early)
+    t_sec_early = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): secure_compare(tag1, tag2_late)
+    t_sec_late = time.perf_counter() - t0
+    print(f"    insecure_compare early diff: {t_insec_early:.6f}s")
+    print(f"    insecure_compare late diff:  {t_insec_late:.6f}s (Leaks info!)")
+    print(f"    secure_compare early diff:   {t_sec_early:.6f}s")
+    print(f"    secure_compare late diff:    {t_sec_late:.6f}s (Constant!)")
+
+    print("\n  CRHF -> MAC (Forward Reduction / EUF-CMA Game):")
+    oracle_key = os.urandom(16)
+    for i in range(50):
+        m = f"message {i}".encode()
+        _ = hmac.mac(oracle_key, m)
+    print(f"    Adversary queried oracle 50 times.")
+    forgery_msg = b"unqueried message"
+    forged_tag = os.urandom(8)
+    is_valid = hmac.verify(oracle_key, forgery_msg, forged_tag)
+    print(f"    Adversary attempts forgery with random tag: success={is_valid} ✓")
+
+    print("\n  MAC -> CRHF (Backward Reduction):")
+    mac_hash = MAC_Hash(b'public_key')
+    h_val = mac_hash.hash(b'test message')
+    print(f"    MAC_Hash(b'test message') = {h_val.hex()}")
+    print("    Finding a collision in MAC_Hash requires forging an HMAC tag!")
+
     # Length-extension on naive H(k||m)
     shared_hash = DLP_Hash()
     naive = NaiveMAC(hash_fn=shared_hash); atk = LengthExtensionAttack(naive)
