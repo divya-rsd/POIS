@@ -1,7 +1,7 @@
 """
 PA #13 — Miller-Rabin Primality Testing
 """
-import os, random, math, time
+import os, secrets, math, time
 
 def _mod_exp(b,e,m):
     r=1; b%=m
@@ -11,7 +11,11 @@ def _mod_exp(b,e,m):
     return r
 
 def miller_rabin(n: int, k: int = 40) -> bool:
-    """Returns True if n is probably prime, False if definitely composite."""
+    """Returns True if n is probably prime, False if definitely composite.
+
+    Witnesses are drawn from a CSPRNG (secrets.randbelow → os.urandom),
+    not the predictable Mersenne-Twister `random` module.
+    """
     if n < 2: return False
     if n == 2 or n == 3: return True
     if n % 2 == 0: return False
@@ -19,7 +23,8 @@ def miller_rabin(n: int, k: int = 40) -> bool:
     s, d = 0, n-1
     while d % 2 == 0: s += 1; d //= 2
     for _ in range(k):
-        a = random.randrange(2, n-1)
+        # secrets.randbelow(N) returns in [0, N) drawn from os.urandom — CSPRNG.
+        a = 2 + secrets.randbelow(n - 3)        # a ∈ [2, n-2]
         x = _mod_exp(a, d, n)
         if x == 1 or x == n-1: continue
         for _ in range(s-1):

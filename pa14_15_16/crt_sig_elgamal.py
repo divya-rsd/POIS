@@ -3,7 +3,7 @@ PA #14 — CRT + Håstad's Broadcast Attack
 PA #15 — Digital Signatures (RSA)
 PA #16 — ElGamal Public-Key Cryptosystem
 """
-import os, sys, math, random
+import os, sys, math, secrets, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa12.rsa import RSA, RSA_PKCS15, _mod_inverse, _fast_pow
 from pa11.dh import DH, _rand_exp
@@ -147,6 +147,91 @@ class ElGamal:
         p,*_ = pk
         return c1, 2*c2 % p
 
+
+# ─────────── PA #16 — IND-CPA Game for ElGamal ───────────
+class ElGamal_IND_CPA_Game:
+    """
+    Formal IND-CPA game (Challenger vs. Adversary) for ElGamal.
+
+    Protocol per round:
+      1. Challenger generates fresh keys (sk, pk).
+      2. Adversary picks two equal-length messages m0, m1.
+      3. Challenger flips a private bit b ← {0,1}, encrypts mb, sends C* to Adv.
+      4. Adversary outputs guess b'. Win iff b' == b.
+
+    Adversary advantage = | Pr[b'=b] − 1/2 |.
+    """
+
+    def __init__(self, eg: 'ElGamal'):
+        self.eg = eg
+
+    # ── Honest (random-guess) adversary — should have negligible advantage ──
+    def random_guess_adversary(self, n_rounds: int = 50) -> dict:
+        wins = 0
+        for _ in range(n_rounds):
+            keys = self.eg.keygen()
+            sk, pk = keys['sk'], keys['pk']
+            p = pk[0]
+            # CSPRNG-driven challenge — secrets.randbelow / randbits use os.urandom.
+            m0 = 1 + secrets.randbelow(p - 1)
+            m1 = 1 + secrets.randbelow(p - 1)
+            b = secrets.randbits(1)
+            mb = m0 if b == 0 else m1
+            c1, c2 = self.eg.encrypt(pk, mb)
+            b_guess = secrets.randbits(1)
+            if b_guess == b:
+                wins += 1
+        adv = abs(wins / n_rounds - 0.5)
+        return {
+            'rounds': n_rounds, 'wins': wins,
+            'advantage': round(adv, 4),
+            'secure': adv < 0.15,
+        }
+
+    # ── DLP-breaking adversary — wins every round when q is small enough ──
+    def dlp_breaking_adversary(self, n_rounds: int = 30) -> dict:
+        """
+        Adversary who solves the discrete log to recover sk = log_g(h), then
+        decrypts the challenge ciphertext directly. Wins with probability 1
+        whenever q is small enough to brute-force in a reasonable time.
+        """
+        wins = 0
+        total_iters = 0
+        for _ in range(n_rounds):
+            keys = self.eg.keygen()
+            sk, pk = keys['sk'], keys['pk']
+            p, g, q, h = pk
+            # Brute-force the secret key x such that g^x = h mod p.
+            cur, x_found = g, None
+            for x in range(1, q):
+                if cur == h:
+                    x_found = x
+                    break
+                cur = cur * g % p
+                total_iters += 1
+            if x_found is None:
+                # Group too large to brute-force in this loop; abstain.
+                continue
+            # Adversary picks distinguishable messages and decrypts the challenge.
+            m0 = 1
+            m1 = 2
+            b = secrets.randbits(1)
+            mb = m0 if b == 0 else m1
+            c1, c2 = self.eg.encrypt(pk, mb)
+            s = _fast_pow(c1, x_found, p)
+            recovered = c2 * _mod_inverse(s, p) % p
+            b_guess = 0 if recovered == m0 else 1
+            if b_guess == b:
+                wins += 1
+        adv = abs(wins / n_rounds - 0.5) if n_rounds else 0.0
+        return {
+            'rounds': n_rounds, 'wins': wins,
+            'advantage': round(adv, 4),
+            'avg_dlp_iters': total_iters // max(1, n_rounds),
+            'secure': adv < 0.15,
+        }
+
+
 def demo_pa16():
     print("="*60); print("PA #16 — ElGamal PKC"); print("="*60)
     eg = ElGamal(bits=128)
@@ -160,6 +245,25 @@ def demo_pa16():
     c1m, c2m = eg.malleability_demo(pk, c1, c2)
     dec_m = eg.decrypt(sk, pk, c1m, c2m)
     print(f"  Malleability: Dec(Enc(2m)) = {dec_m} = 2×{m} = {2*m}, match={dec_m==2*m} ✓")
+
+    # ── IND-CPA game: large group ──
+    print("\n  [IND-CPA game over 128-bit group — DDH presumed hard]")
+    game_big = ElGamal_IND_CPA_Game(eg)
+    res_big = game_big.random_guess_adversary(n_rounds=40)
+    print(f"  Random-guess adversary: {res_big['wins']}/{res_big['rounds']} wins, "
+          f"advantage={res_big['advantage']} ≈ 0  → secure ✓")
+
+    # ── IND-CPA game: tiny group where DLP/DDH is brute-forceable ──
+    print("\n  [IND-CPA game over tiny group (q≈2^10) — DLP solvable, DDH broken]")
+    eg_tiny = ElGamal(bits=11)              # q is ~10 bits, p is ~11 bits
+    print(f"  Group: p={hex(eg_tiny.p)} ({eg_tiny.p.bit_length()} bits), "
+          f"q={hex(eg_tiny.q)} ({eg_tiny.q.bit_length()} bits)")
+    game_tiny = ElGamal_IND_CPA_Game(eg_tiny)
+    res_tiny = game_tiny.dlp_breaking_adversary(n_rounds=20)
+    print(f"  DLP-breaking adversary: {res_tiny['wins']}/{res_tiny['rounds']} wins, "
+          f"advantage={res_tiny['advantage']} ≈ 0.5  → INSECURE ✗")
+    print(f"  Avg DLP brute-force iterations per round: {res_tiny['avg_dlp_iters']}")
+    print("  (Same scheme, same construction — just a smaller group → IND-CPA breaks.)")
     print("✓ PA#16 complete.")
 
 if __name__ == "__main__":

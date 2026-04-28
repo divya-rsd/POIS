@@ -11,7 +11,7 @@ Implements:
 
 import os
 import sys
-import random
+import secrets
 from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -182,7 +182,8 @@ class PRFDistinguishingGame:
         return self._random_oracle[x]
 
     def run_experiment(self, n_queries: int = 100) -> dict:
-        queries = [random.randint(0, 2**self.n_bits - 1) for _ in range(n_queries)]
+        # CSPRNG-driven queries (secrets → os.urandom).
+        queries = [secrets.randbelow(2 ** self.n_bits) for _ in range(n_queries)]
         prf_outputs = [self.query_prf(q) for q in queries]
         rand_outputs = [self.query_random(q) for q in queries]
 

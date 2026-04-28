@@ -4,7 +4,7 @@ PA #9 — Birthday Attack
 PA #10 — HMAC and HMAC-Based CCA-Secure Encryption
 """
 
-import os, sys, math, time, secrets, struct, random
+import os, sys, math, time, secrets, struct
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa7.merkle_damgard import MerkleDamgard, md_pad, OUTPUT_SIZE, BLOCK_SIZE
 from pa3.cpa_enc import CPA_Enc
@@ -54,8 +54,10 @@ class DLP_Compress:
         self.p = p
         self.g = g
         self.q = q   # subgroup order
-        # alpha is in [2, q-1] so g^alpha stays in the order-q subgroup.
-        self.alpha = alpha if alpha is not None else random.randint(2, q - 2)
+        # alpha is the secret trapdoor whose unpredictability underpins
+        # collision resistance — must come from a CSPRNG, never random.random.
+        # secrets.randbelow draws from os.urandom under the hood.
+        self.alpha = alpha if alpha is not None else 2 + secrets.randbelow(q - 3)
         self.h_hat = _mod_exp(g, self.alpha, p)
 
     def compress(self, x_bytes: bytes, y_bytes: bytes) -> bytes:
@@ -109,7 +111,7 @@ class BirthdayAttack:
         seen = {}
         evals = 0
         while True:
-            x = random.randint(0, 2**32-1).to_bytes(4,'big')
+            x = os.urandom(4)
             h = self.hash_fn(x) % self.modulus
             evals += 1
             if h in seen and seen[h] != x:
@@ -121,7 +123,7 @@ class BirthdayAttack:
         def f(x_int):
             h = self.hash_fn(x_int.to_bytes(4,'big')) % self.modulus
             return h
-        tortoise = random.randint(0, self.modulus-1)
+        tortoise = secrets.randbelow(self.modulus)
         hare = tortoise
         evals = 0
         while True:
@@ -131,7 +133,7 @@ class BirthdayAttack:
             if tortoise == hare:
                 break
         # Find collision
-        x1 = random.randint(0, self.modulus-1)
+        x1 = secrets.randbelow(self.modulus)
         x2 = tortoise
         steps = 0
         while f(x1) != f(x2):
@@ -147,7 +149,7 @@ class BirthdayAttack:
             evals = 0
             found = False
             for _ in range(self.modulus*5):
-                x = random.randint(0, 2**32-1).to_bytes(4,'big')
+                x = os.urandom(4)
                 h = self.hash_fn(x) % self.modulus
                 evals += 1
                 if h in seen and seen[h] != x:

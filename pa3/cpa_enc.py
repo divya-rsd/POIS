@@ -13,6 +13,7 @@ Implements:
 """
 
 import os
+import secrets
 import struct
 from typing import Tuple
 import sys, os as _os
@@ -148,8 +149,8 @@ class IND_CPA_Game:
     def challenge(self, m0: bytes, m1: bytes) -> bytes:
         """Challenger encrypts one of m0, m1; adversary must guess which."""
         assert len(m0) == len(m1), "Challenge messages must be equal length"
-        import random
-        self._b = random.randint(0, 1)
+        # CSPRNG bit (secrets.randbits → os.urandom).
+        self._b = secrets.randbits(1)
         chosen = m0 if self._b == 0 else m1
         return self.scheme.encrypt_full(self.key, chosen)
 
@@ -169,7 +170,6 @@ class IND_CPA_Game:
 
     def run_dummy_adversary(self, n_rounds: int = 50) -> dict:
         """Simulate dummy adversary (random guessing) — advantage ≈ 0."""
-        import random
         self._wins = 0
         self._rounds = 0
         # Adversary queries oracle 50 times first
@@ -179,7 +179,7 @@ class IND_CPA_Game:
         for _ in range(n_rounds):
             ct = self.challenge(b"message zero!!!!",
                                 b"message one!!!! ")
-            b_guess = random.randint(0, 1)  # Random guess
+            b_guess = secrets.randbits(1)  # CSPRNG random guess
             self.guess(b_guess)
         return {
             'rounds': self._rounds,
@@ -200,9 +200,8 @@ class IND_CPA_Game:
             # Encrypt m0 and m1 separately — nonce reuse means same CT if same msg
             _, ct0 = broken_enc.encrypt(broken_key, m0)
             _, ct1 = broken_enc.encrypt(broken_key, m1)
-            # Get challenge
-            import random
-            b_actual = random.randint(0, 1)
+            # Get challenge — CSPRNG bit
+            b_actual = secrets.randbits(1)
             m_chosen = m0 if b_actual == 0 else m1
             _, ct_challenge = broken_enc.encrypt(broken_key, m_chosen)
             # Adversary: compare challenge CT to known CTs
@@ -211,7 +210,7 @@ class IND_CPA_Game:
             elif ct_challenge == ct1:
                 b_guess = 1
             else:
-                b_guess = random.randint(0, 1)
+                b_guess = secrets.randbits(1)
             if b_guess == b_actual:
                 wins += 1
         adv = abs(wins / n_rounds - 0.5)
