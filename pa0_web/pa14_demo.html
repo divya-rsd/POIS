@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #14 - Håstad Broadcast Attack</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .recipient-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r); padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .recipient-name { font-family: var(--display); font-size: 14px; color: var(--accent); }
+  .val-box { font-family: var(--mono); font-size: 10px; padding: 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; word-break: break-all; color: var(--text2); }
+  
+  .attacker-panel { margin-top: 20px; border-color: rgba(248,113,113,.3); background: var(--red-dim); }
+  .attacker-name { font-family: var(--display); font-size: 18px; color: var(--red); margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #14</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Håstad Broadcast Visualizer</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Send the same message m to 3 recipients using small e=3. An attacker can recover m using the Chinese Remainder Theorem. See how PKCS#1 v1.5 padding stops this attack.</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Message m</div>
+        <input type="text" id="hastad-m" value="SECRET_CODE_123">
+      </div>
+      <div class="fg">
+        <div class="fl" style="margin-bottom:5px">Padding</div>
+        <div style="height:34px; display:flex; align-items:center;">
+          <input type="checkbox" id="hastad-pkcs"> <label for="hastad-pkcs" style="font-size:12px; color:var(--text2); margin-left:5px;">Use PKCS#1 v1.5</label>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-broadcast" style="align-self: flex-end;">▶ Broadcast (e=3)</button>
+    </div>
+  </div>
+
+  <div class="grid-2" style="grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+    <!-- Recipient 1 -->
+    <div class="recipient-panel">
+      <div class="recipient-name">Recipient 1</div>
+      <div class="fl" style="font-size:9px">Modulus N₁</div>
+      <div class="val-box" id="hastad-n1"></div>
+      <div class="fl" style="font-size:9px">Ciphertext c₁</div>
+      <div class="val-box" id="hastad-c1"></div>
+    </div>
+    <!-- Recipient 2 -->
+    <div class="recipient-panel">
+      <div class="recipient-name">Recipient 2</div>
+      <div class="fl" style="font-size:9px">Modulus N₂</div>
+      <div class="val-box" id="hastad-n2"></div>
+      <div class="fl" style="font-size:9px">Ciphertext c₂</div>
+      <div class="val-box" id="hastad-c2"></div>
+    </div>
+    <!-- Recipient 3 -->
+    <div class="recipient-panel">
+      <div class="recipient-name">Recipient 3</div>
+      <div class="fl" style="font-size:9px">Modulus N₃</div>
+      <div class="val-box" id="hastad-n3"></div>
+      <div class="fl" style="font-size:9px">Ciphertext c₃</div>
+      <div class="val-box" id="hastad-c3"></div>
+    </div>
+  </div>
+
+  <!-- Attacker -->
+  <div class="card attacker-panel">
+    <div class="attacker-name">Attacker (Eve)</div>
+    
+    <div class="fg">
+      <div class="fl">1. Chinese Remainder Theorem: x = m³ mod (N₁N₂N₃)</div>
+      <div class="val-box" id="hastad-x" style="color:var(--text); border-color:var(--red); min-height:40px">Waiting for broadcast...</div>
+    </div>
+    
+    <div class="fg" style="margin-top:15px">
+      <div class="fl">2. Integer Cube Root reveals m</div>
+      <div class="val-box" id="hastad-recover" style="color:var(--accent); font-weight:600; min-height:28px; background:var(--surface)"></div>
+    </div>
+    
+    <div id="hastad-status" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa14_demo.js"></script>
+</body>
+</html>

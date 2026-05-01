@@ -358,3 +358,7 @@ OTP (perfect) → CPA-Secure (PRF-based) → CCA-Secure (Encrypt-then-MAC)
 ```
 
 ---
+
+
+command to start the server:
+uvicorn backend:app --host 0.0.0.0 --port 5050 --reload

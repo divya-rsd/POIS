@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #17 - CCA-Secure PKC</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .attack-panel { display: flex; flex-direction: column; gap: 10px; }
+  .cipher-box { font-family: var(--mono); font-size: 11px; background: var(--surface3); padding: 10px; border-radius: var(--r); word-break: break-all; color: var(--accent); border: 1px solid var(--border2); min-height: 40px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #17</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">CCA-Secure Public Key Encryption</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Combine ElGamal with RSA-PSS Signatures to achieve IND-CCA2 security. A chosen-ciphertext attack (malleability) is caught by the signature verification before decryption.</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Original Message (m)</div>
+        <input type="number" id="pt-msg" value="100">
+      </div>
+      <button class="btn btn-primary" id="btn-enc" style="align-self: flex-end;">▶ Encrypt-then-Sign</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- CPA Panel (Left) -->
+    <div class="card fg attack-panel" style="border-color: rgba(251,191,36,.3);">
+      <div class="fl" style="color:var(--amber)">Plain ElGamal (CPA-Only)</div>
+      
+      <div class="fg">
+        <div class="fl" style="font-size:9px">Ciphertext (c1, c2)</div>
+        <div class="cipher-box" id="cpa-ct">Waiting for encryption...</div>
+      </div>
+      
+      <div class="row" style="margin-top:10px">
+        <div class="fg" style="flex:1">
+          <div class="fl" style="font-size:9px">Multiply by k (Malleate)</div>
+          <input type="number" id="cpa-k" value="5">
+        </div>
+        <button class="btn" id="btn-mal-cpa" style="align-self: flex-end;">Malleate & Decrypt</button>
+      </div>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Decrypted Plaintext</div>
+        <input type="text" id="cpa-dec" readonly style="background:var(--bg)">
+      </div>
+    </div>
+
+    <!-- CCA Panel (Right) -->
+    <div class="card fg attack-panel" style="border-color: rgba(110,231,183,.3);">
+      <div class="fl" style="color:var(--green)">CCA-Secure (Encrypt-then-Sign)</div>
+      
+      <div class="fg">
+        <div class="fl" style="font-size:9px">Ciphertext (c1, c2, sig)</div>
+        <div class="cipher-box" id="cca-ct">Waiting for encryption...</div>
+      </div>
+      
+      <div class="row" style="margin-top:10px">
+        <div class="fg" style="flex:1">
+          <div class="fl" style="font-size:9px">Multiply by k (Malleate)</div>
+          <input type="number" id="cca-k" value="5">
+        </div>
+        <button class="btn" id="btn-mal-cca" style="align-self: flex-end;">Malleate & Decrypt</button>
+      </div>
+      
+      <div class="fg" style="margin-top:10px">
+        <div class="fl" style="font-size:9px">Decrypted Plaintext</div>
+        <input type="text" id="cca-dec" readonly style="background:var(--bg)">
+      </div>
+      <div id="cca-status" class="status" style="display:none; text-align:center"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa17_demo.js"></script>
+</body>
+</html>

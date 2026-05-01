@@ -3,10 +3,69 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Minicrypt Clique Explorer</title>
+<title>Minicrypt Clique Web Explorer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<style>
+  .dashboard-layout {
+    padding: 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .part-section {
+    margin-bottom: 40px;
+  }
+  .part-title {
+    font-family: var(--display);
+    font-size: 24px;
+    color: var(--text);
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .demo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .demo-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--r2);
+    padding: 20px;
+    transition: var(--t);
+    cursor: pointer;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .demo-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--accent-dim);
+  }
+  .demo-card-pa {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 8px;
+    letter-spacing: 0.1em;
+  }
+  .demo-card-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .demo-card-desc {
+    font-size: 12px;
+    color: var(--text2);
+    flex-grow: 1;
+  }
+</style>
 </head>
 <body>
 
@@ -16,7 +75,7 @@
     <div class="logo-icon">∥</div>
     <div class="logo-text"> &nbsp;<em>Minicrypt</em> Clique Explorer</div>
   </div>
-
+  
   <div class="bar-section">
     <span class="bar-label">Foundation</span>
     <div class="seg" id="seg-found">
@@ -25,166 +84,154 @@
     </div>
   </div>
 
-  <div class="bar-section">
-    <span class="bar-label">Direction</span>
-    <div class="seg" id="seg-dir">
-      <button class="on" onclick="setDir('fwd')">A → B</button>
-      <button onclick="setDir('bwd')">B → A</button>
-    </div>
-  </div>
-
-  <span class="pa-badge">PA #0</span>
+  <span class="pa-badge">Dashboard</span>
 </div>
 
 <!-- ══ HERO STRIP ══ -->
-<div class="hero-strip">
+<div class="hero-strip" style="justify-content: center; text-align: center; padding: 40px 20px;">
   <div>
-    <div class="hero-title">Cryptographic <span>Reduction</span> Explorer</div>
-    <div class="hero-sub">Trace how security primitives reduce to one another within the Minicrypt clique. Each leg is a formal proof of computational equivalence.</div>
-  </div>
-  <div class="hero-divider"></div>
-  <div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px;">Clique Map</div>
-    <div class="clique-pill-wrap" id="hero-clique"></div>
+    <div class="hero-title">Welcome to the <span>Minicrypt Explorer</span></div>
+    <div class="hero-sub" style="max-width: 600px; margin: 10px auto 0;">Navigate through all 20 interactive cryptographic demonstrations, bridging the gap from simple One-Way Functions up to Secure Multi-Party Computation.</div>
   </div>
 </div>
 
-<!-- ══ TWO-COLUMN MAIN ══ -->
-<div class="layout">
+<!-- ══ DASHBOARD ══ -->
+<div class="dashboard-layout">
 
-  <!-- PANEL 1 — LEG 1 -->
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-leg"><div class="leg-indicator"></div> LEG 1</div>
-      <div class="panel-title">
-        Foundation → Source Primitive
-        <span class="arrow-badge" id="leg1-badge">Foundation → A</span>
-      </div>
-    </div>
-    <div class="panel-body">
-
-      <div class="fg">
-        <div class="fl">Source Primitive (A)</div>
-        <select id="sel-src" onchange="onSrcChange()">
-          <option value="OWF">OWF — One-Way Function</option>
-          <option value="PRG">PRG — Pseudorandom Generator</option>
-          <option value="PRF" selected>PRF — Pseudorandom Function</option>
-          <option value="PRP">PRP — Pseudorandom Permutation</option>
-          <option value="MAC">MAC — Message Auth. Code</option>
-          <option value="CRHF">CRHF — Collision-Resistant Hash</option>
-          <option value="HMAC">HMAC — Hash-based MAC</option>
-          <!-- FIX: added CPA-Enc and CCA-Enc as source options so backward routes are reachable -->
-          <option value="CPA-Enc">CPA-Enc — CPA-Secure Encryption</option>
-          <option value="CCA-Enc">CCA-Enc — CCA-Secure Encryption</option>
-        </select>
-      </div>
-
-      <div class="fg">
-        <div class="fl">Key / Seed (hex)</div>
-        <input type="text" id="inp-key" value="a3f2c1b4e9d05678feedcafe" placeholder="hex key or seed…" oninput="onKeyChange()">
-      </div>
-
-      <div class="row">
-        <button class="btn btn-primary" onclick="runLeg1()">▶ Build from Foundation</button>
-        <button class="btn btn-ghost" onclick="randomize()">↺ Randomize</button>
-      </div>
-
-      <!-- Panel clique map -->
-      <div class="clique-map-wrap">
-        <div class="clique-map-label">Reduction path</div>
-        <div class="clique-wrap" id="clique-map"></div>
-      </div>
-
-      <div id="leg1-steps" class="steps">
-        <div class="empty">Select a primitive and click Build from Foundation</div>
-      </div>
-
-      <div id="leg1-out" class="out-box" style="display:none">
-        <div class="out-lbl" id="leg1-out-lbl">Output</div>
-        <div class="out-val" id="leg1-out-val"></div>
-      </div>
-
+  <div class="part-section">
+    <div class="part-title">Part I: Symmetric Crypto (Minicrypt)</div>
+    <div class="demo-grid">
+      <a href="pa1_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #1</div>
+        <div class="demo-card-title">OWF & PRG</div>
+        <div class="demo-card-desc">Live PRG Output Viewer with randomness testing.</div>
+      </a>
+      <a href="pa2_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #2</div>
+        <div class="demo-card-title">PRF via GGM</div>
+        <div class="demo-card-desc">GGM Tree Visualizer highlighting the active query path.</div>
+      </a>
+      <a href="pa3_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #3</div>
+        <div class="demo-card-title">CPA-Secure Enc</div>
+        <div class="demo-card-desc">IND-CPA Game and Nonce-Reuse vulnerability.</div>
+      </a>
+      <a href="pa4_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #4</div>
+        <div class="demo-card-title">Modes of Operation</div>
+        <div class="demo-card-desc">Block Cipher Animator for CBC, OFB, CTR.</div>
+      </a>
+      <a href="pa5_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #5</div>
+        <div class="demo-card-title">MACs</div>
+        <div class="demo-card-desc">EUF-CMA Forgery Game and Length-extension demo.</div>
+      </a>
+      <a href="pa6_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #6</div>
+        <div class="demo-card-title">CCA-Secure Enc</div>
+        <div class="demo-card-desc">Malleability Attack Panel vs Encrypt-then-MAC.</div>
+      </a>
     </div>
   </div>
 
-  <!-- PANEL 2 — LEG 2 -->
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-leg" style="--accent:var(--green);">
-        <div class="leg-indicator" style="background:var(--green);box-shadow:0 0 6px var(--green);"></div>
-        LEG 2
-      </div>
-      <div class="panel-title">
-        Source → Target Primitive
-        <span class="arrow-badge" id="leg2-badge" style="background:var(--green-dim);color:var(--green);border-color:rgba(110,231,183,.2);">A → B</span>
-      </div>
+  <div class="part-section">
+    <div class="part-title">Part II: Hashing and Data Integrity</div>
+    <div class="demo-grid">
+      <a href="pa7_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #7</div>
+        <div class="demo-card-title">Merkle-Damgård</div>
+        <div class="demo-card-desc">Visual trace of MD chaining and padding.</div>
+      </a>
+      <a href="pa8_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #8</div>
+        <div class="demo-card-title">DLP CRHF</div>
+        <div class="demo-card-desc">Live DLP Hashing and Collision hunting.</div>
+      </a>
+      <a href="pa9_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #9</div>
+        <div class="demo-card-title">Birthday Attack</div>
+        <div class="demo-card-desc">Interactive collision finding plotted against theoretical curves.</div>
+      </a>
+      <a href="pa10_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #10</div>
+        <div class="demo-card-title">HMAC</div>
+        <div class="demo-card-desc">Comparing naive Hash-MACs with secure HMAC.</div>
+      </a>
     </div>
-    <div class="panel-body">
+  </div>
 
-      <div class="fg">
-        <div class="fl">Target Primitive (B)</div>
-        <select id="sel-tgt" onchange="onTgtChange()">
-          <option value="OWF">OWF — One-Way Function</option>
-          <option value="PRG">PRG — Pseudorandom Generator</option>
-          <option value="PRF">PRF — Pseudorandom Function</option>
-          <option value="PRP" selected>PRP — Pseudorandom Permutation</option>
-          <option value="MAC">MAC — Message Auth. Code</option>
-          <option value="CRHF">CRHF — Collision-Resistant Hash</option>
-          <option value="HMAC">HMAC — Hash-based MAC</option>
-          <option value="CPA-Enc">CPA-Enc — CPA-Secure Encryption</option>
-          <option value="CCA-Enc">CCA-Enc — CCA-Secure Encryption</option>
-        </select>
-      </div>
+  <div class="part-section">
+    <div class="part-title">Part III: Public-Key Cryptography</div>
+    <div class="demo-grid">
+      <a href="pa11_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #11</div>
+        <div class="demo-card-title">Diffie-Hellman</div>
+        <div class="demo-card-desc">Live Key Exchange with Man-In-The-Middle attacks.</div>
+      </a>
+      <a href="pa12_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #12</div>
+        <div class="demo-card-title">Textbook RSA</div>
+        <div class="demo-card-desc">Determinism Attack vs PKCS#1 v1.5 padding.</div>
+      </a>
+      <a href="pa13_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #13</div>
+        <div class="demo-card-title">Miller-Rabin</div>
+        <div class="demo-card-desc">Primality testing with witness tracing.</div>
+      </a>
+      <a href="pa14_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #14</div>
+        <div class="demo-card-title">CRT & Håstad</div>
+        <div class="demo-card-desc">Broadcast Visualizer and Cube Root attacks.</div>
+      </a>
+      <a href="pa15_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #15</div>
+        <div class="demo-card-title">Digital Signatures</div>
+        <div class="demo-card-desc">Sign and Verify Live with tampering controls.</div>
+      </a>
+      <a href="pa16_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #16</div>
+        <div class="demo-card-title">ElGamal</div>
+        <div class="demo-card-desc">Malleability Demo via multiplicative property.</div>
+      </a>
+      <a href="pa17_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #17</div>
+        <div class="demo-card-title">CCA-Secure PKC</div>
+        <div class="demo-card-desc">Encrypt-then-sign vs plain ElGamal.</div>
+      </a>
+    </div>
+  </div>
 
-      <div class="fg">
-        <div class="fl">Message / Query</div>
-        <input type="text" id="inp-msg" value="1011" placeholder="bit string or hex…" oninput="onMsgChange()">
-      </div>
-
-      <div class="row">
-        <button class="btn btn-primary" onclick="runLeg2()" style="background:var(--green);border-color:var(--green);box-shadow:0 0 16px var(--green-dim);animation:none;">▶ Run Reduction</button>
-        <button class="btn" onclick="launchGame()" style="color:var(--purple);border-color:rgba(167,139,250,.3);background:var(--purple-dim);">⚑ Security Game</button>
-        <button class="btn btn-ghost btn-sm" onclick="clearAll()">✕ Clear</button>
-      </div>
-
-      <div id="leg2-status"></div>
-
-      <div id="leg2-steps" class="steps">
-        <div class="empty">Run Leg 1 first, then click Run Reduction</div>
-      </div>
-
-      <div id="leg2-out" class="out-box" style="display:none;border-color:rgba(110,231,183,.3);background:var(--green-dim);">
-        <div class="out-lbl" id="leg2-out-lbl" style="color:var(--green);">Output</div>
-        <div class="out-val" id="leg2-out-val"></div>
-      </div>
-
-      <div id="game-area"></div>
-
+  <div class="part-section">
+    <div class="part-title">Part IV: Secure Multi-Party Computation</div>
+    <div class="demo-grid">
+      <a href="pa18_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #18</div>
+        <div class="demo-card-title">Oblivious Transfer</div>
+        <div class="demo-card-desc">Receiver Game and cheat attempts.</div>
+      </a>
+      <a href="pa19_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #19</div>
+        <div class="demo-card-title">Secure AND</div>
+        <div class="demo-card-desc">Step-by-step gate evaluation via OT.</div>
+      </a>
+      <a href="pa20_demo.html" class="demo-card">
+        <div class="demo-card-pa">PA #20</div>
+        <div class="demo-card-title">2-Party MPC</div>
+        <div class="demo-card-desc">Millionaire's Problem and general secure circuit evaluation.</div>
+      </a>
     </div>
   </div>
 
 </div>
 
-<!-- ══ PROOF PANEL ══ -->
-<details class="proof-wrap" id="proof-details">
-  <summary class="proof-summary">
-    <span class="chevron">▶</span>
-    <span style="color:var(--text);">Reduction Proof &amp; Theorem Summary</span>
-    <span style="color:var(--text3);font-size:11px;margin-left:6px;">— click to expand</span>
-    <span class="proof-chain-inline" id="proof-chain-inline">—</span>
-  </summary>
-  <div class="proof-section-label">
-    <span style="color:var(--accent);">◆</span> Formal Reduction Cards
-  </div>
-  <div class="proof-cards" id="proof-cards"></div>
-</details>
-
-<!-- Modules loaded in dependency order -->
-<script src="crypto.js"></script>
-<script src="render.js"></script>
-<script src="game.js"></script>
-<script src="legs.js"></script>
-<script src="controls.js"></script>
-
+<script src="api.js"></script>
+<script>
+  function setFoundation(f) {
+    document.querySelectorAll('#seg-found button').forEach(b => b.classList.remove('on'));
+    event.target.classList.add('on');
+    // Global state can be stored here if needed for specific demos later
+    localStorage.setItem('foundation', f);
+  }
+</script>
 </body>
 </html>

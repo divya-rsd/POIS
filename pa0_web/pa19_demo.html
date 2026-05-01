@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #19 - Secure AND</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .actor-panel { background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r2); padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .actor-name { font-family: var(--display); font-size: 20px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 5px; }
+  .actor-name.bob { color: var(--purple); }
+  .bob-panel { border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.05); }
+  
+  .chat-log { background: var(--bg); border-radius: var(--r); padding: 10px; min-height: 150px; max-height: 300px; overflow-y: auto; font-family: var(--mono); font-size: 11px; margin-top: 15px; border: 1px solid var(--border2); }
+  .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  .log-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .log-alice { color: var(--accent); }
+  .log-bob { color: var(--purple); }
+  .log-sys { color: var(--text3); font-style: italic; }
+  
+  .bit-sel { display: flex; gap: 10px; }
+  .bit-btn { flex: 1; padding: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); border-radius: var(--r); cursor: pointer; font-family: var(--mono); text-align: center; transition: var(--t); }
+  .bit-btn.active.alice { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .bit-btn.active.bob { background: var(--purple); color: var(--bg); border-color: var(--purple); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #19</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Secure AND Gate (GMW Protocol)</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Compute the logical AND of Alice's bit and Bob's bit without revealing the bits to each other. Uses 1-out-of-4 Oblivious Transfer.</div>
+
+  <div style="display: flex; gap: 15px; align-items: stretch;">
+    
+    <!-- Alice -->
+    <div class="actor-panel">
+      <div class="actor-name">Alice</div>
+      <div class="fl" style="font-size:9px">Alice's Bit (x)</div>
+      <div class="bit-sel" id="sel-alice">
+        <div class="bit-btn alice active" data-val="0">0</div>
+        <div class="bit-btn alice" data-val="1">1</div>
+      </div>
+    </div>
+    
+    <!-- Bob -->
+    <div class="actor-panel bob-panel">
+      <div class="actor-name bob">Bob</div>
+      <div class="fl" style="font-size:9px; color:var(--purple)">Bob's Bit (y)</div>
+      <div class="bit-sel" id="sel-bob">
+        <div class="bit-btn bob active" data-val="0">0</div>
+        <div class="bit-btn bob" data-val="1">1</div>
+      </div>
+    </div>
+    
+  </div>
+  
+  <div class="card fg" style="margin-top: 20px;">
+    <button class="btn btn-primary" id="btn-eval" style="align-self: center; width: 100%; max-width: 300px;">▶ Evaluate Secure AND</button>
+    
+    <div class="chat-log" id="chat-log" style="margin-top: 20px;"></div>
+    
+    <div id="and-status" class="status" style="display:none; margin-top:20px; text-align:center; font-size: 16px; font-weight: 600;"></div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa19_demo.js"></script>
+</body>
+</html>

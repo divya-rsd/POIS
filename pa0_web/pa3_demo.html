@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #3 - CPA-Secure Enc</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .stat-box { text-align: center; padding: 15px; border-radius: var(--r2); background: var(--surface2); border: 1px solid var(--border2); }
+  .stat-val { font-family: var(--mono); font-size: 24px; color: var(--accent); margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #3</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">IND-CPA Security Game</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Test the indistinguishability under chosen-plaintext attack. The server picks one of two messages randomly. You must guess which one was encrypted.</div>
+
+  <div class="grid-2" style="margin-bottom: 20px;">
+    <div class="stat-box">
+      <div class="fl">Games Played</div>
+      <div class="stat-val" id="stat-played">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="fl">Win Rate</div>
+      <div class="stat-val" id="stat-winrate">0%</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Adversary Messages</div>
+      <input type="text" id="cpa-m0" value="ATTACK_DAWN" placeholder="Message 0">
+      <input type="text" id="cpa-m1" value="DEFEND_DUSK" placeholder="Message 1" style="margin-top:5px">
+      
+      <div class="row" style="margin-top: 15px;">
+        <input type="checkbox" id="cpa-reuse"> <label for="cpa-reuse" style="font-size:12px; color:var(--text2)">Reuse Nonce (Breaks CPA)</label>
+      </div>
+
+      <div class="row" style="margin-top: 15px;">
+        <button class="btn btn-primary" id="btn-chal">▶ Request Challenge</button>
+      </div>
+    </div>
+
+    <div class="card fg" style="position:relative">
+      <div class="fl">Challenge Ciphertext</div>
+      <textarea id="cpa-ct" class="mono" style="width:100%; height:80px; resize:none; background:var(--bg);" readonly></textarea>
+      
+      <div id="guess-area" style="display:none; margin-top:15px">
+        <div class="fl" style="margin-bottom:10px">Which message was encrypted?</div>
+        <div class="row">
+          <button class="btn" id="btn-guess-0" style="flex:1">m0</button>
+          <button class="btn" id="btn-guess-1" style="flex:1">m1</button>
+        </div>
+      </div>
+
+      <div id="result-area" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="pa3_demo.js"></script>
+</body>
+</html>

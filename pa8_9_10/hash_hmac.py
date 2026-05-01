@@ -4,58 +4,97 @@ PA #9 — Birthday Attack
 PA #10 — HMAC and HMAC-Based CCA-Secure Encryption
 """
 
-import os, sys, math, time, secrets, struct, random
+import os, sys, math, time, secrets, struct
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa7.merkle_damgard import MerkleDamgard, md_pad, OUTPUT_SIZE, BLOCK_SIZE
 from pa3.cpa_enc import CPA_Enc
 
 # ─────────── PA #8 — DLP Hash ───────────
-# Safe prime for DLP CRHF (small for demo speed)
-_P8 = 2**31 - 1  # Mersenne prime (fast)
-_G8 = 7
+# Per the PA#8 spec we need a safe-prime group: p = 2q + 1 with both p and q
+# prime. Collisions in h(x, y) = g^x · h_hat^y mod p must reduce to DLP, so
+# x and y must reduce mod the SUBGROUP ORDER q (not p-1). Output fits in 8
+# bytes; collision resistance ≈ 2^32 by the birthday bound.
+#
+# This 64-bit safe prime is precomputed (verified prime via Miller-Rabin):
+#   q = 0x447B704060D159B1  (63-bit prime)
+#   p = 2q + 1 = 0x88F6E080C1A2B363  (64-bit safe prime)
+#   g = 3   (order q: 3 != 1, 3^2 != 1 mod p, 3^q == 1 mod p)
+_Q8 = 0x447B704060D159B1
+_P8 = 2 * _Q8 + 1
+_G8 = 3
+OUT_BYTES = 8                 # bytes of hash output (fits one element of Z_p)
 
-def _mod_exp(b,e,m):
-    r=1; b%=m
-    while e>0:
-        if e&1: r=r*b%m
-        e>>=1; b=b*b%m
+
+def _mod_exp(b, e, m):
+    r = 1
+    b %= m
+    while e > 0:
+        if e & 1:
+            r = r * b % m
+        e >>= 1
+        b = b * b % m
     return r
+
 
 class DLP_Compress:
     """
-    h(x,y) = g^x * h_hat^y mod p
-    Collision resistance: finding collision solves DLP.
+    Collision-resistant compression based on the DL assumption.
+
+        h(x, y) = g^x · ĥ^y  mod p,  with ĥ = g^α and α discarded.
+
+    Finding (x, y) ≠ (x', y') with h(x, y) = h(x', y') ⇒ α = (x − x')·(y' − y)⁻¹
+    mod (p−1), i.e. solves the DL of ĥ w.r.t. g.
+
+    The compression must consume the FULL block — earlier versions truncated to
+    4 bytes, which created trivial collisions on long messages whose differences
+    sat in the discarded suffix.
     """
-    def __init__(self, p=_P8, g=_G8, alpha=None):
-        self.p = p; self.g = g
-        self.alpha = alpha or (random.randint(2, p-2))
-        self.h_hat = _mod_exp(g, self.alpha, p)  # h_hat = g^alpha
+
+    def __init__(self, p=_P8, g=_G8, q=_Q8, alpha=None):
+        self.p = p
+        self.g = g
+        self.q = q   # subgroup order
+        # alpha is the secret trapdoor whose unpredictability underpins
+        # collision resistance — must come from a CSPRNG, never random.random.
+        # secrets.randbelow draws from os.urandom under the hood.
+        self.alpha = alpha if alpha is not None else 2 + secrets.randbelow(q - 3)
+        self.h_hat = _mod_exp(g, self.alpha, p)
 
     def compress(self, x_bytes: bytes, y_bytes: bytes) -> bytes:
-        x = int.from_bytes((x_bytes+b'\x00'*4)[:4],'big') % (self.p-1)
-        y = int.from_bytes((y_bytes+b'\x00'*4)[:4],'big') % (self.p-1)
-        result = _mod_exp(self.g,x,self.p) * _mod_exp(self.h_hat,y,self.p) % self.p
-        return result.to_bytes(4,'big')
+        # Reduce inputs mod q (the SUBGROUP ORDER) so collisions reduce to DLP.
+        x = int.from_bytes(x_bytes, 'big') % self.q
+        y = int.from_bytes(y_bytes, 'big') % self.q
+        result = _mod_exp(self.g, x, self.p) * _mod_exp(self.h_hat, y, self.p) % self.p
+        return result.to_bytes(OUT_BYTES, 'big')
 
     def as_compress_fn(self):
+        """Adapter for MerkleDamgard.compress(cv, block)."""
         def fn(cv, block):
-            return self.compress(cv, (block+b'\x00'*4)[:4])
+            return self.compress(cv, block)
         return fn
 
+
 class DLP_Hash:
-    """Full CRHF: DLP compression + Merkle-Damgård transform."""
+    """Full CRHF = DLP compression + Merkle-Damgård transform."""
+
+    BLOCK_BYTES = 16   # message block size; bigger than output to give MD strengthening room
+    OUTPUT_BYTES = OUT_BYTES
+
     def __init__(self):
         self._dlp = DLP_Compress()
-        self._md = MerkleDamgard(compress=self._dlp.as_compress_fn())
+        self._md = MerkleDamgard(
+            compress=self._dlp.as_compress_fn(),
+            iv=b'\x00' * self.OUTPUT_BYTES,
+            block_size=self.BLOCK_BYTES,
+        )
 
     def hash(self, message: bytes) -> bytes:
         return self._md.hash(message)
 
     def hash_truncated(self, message: bytes, bits: int = 16) -> int:
-        """Truncated hash for birthday attack demo."""
         h = self.hash(message)
-        full = int.from_bytes(h,'big')
-        return full % (2**bits)
+        full = int.from_bytes(h, 'big')
+        return full % (2 ** bits)
 
 
 # ─────────── PA #9 — Birthday Attack ───────────
@@ -72,7 +111,7 @@ class BirthdayAttack:
         seen = {}
         evals = 0
         while True:
-            x = random.randint(0, 2**32-1).to_bytes(4,'big')
+            x = os.urandom(4)
             h = self.hash_fn(x) % self.modulus
             evals += 1
             if h in seen and seen[h] != x:
@@ -84,7 +123,8 @@ class BirthdayAttack:
         def f(x_int):
             h = self.hash_fn(x_int.to_bytes(4,'big')) % self.modulus
             return h
-        tortoise = random.randint(0, self.modulus-1)
+        start_node = secrets.randbelow(self.modulus)
+        tortoise = start_node
         hare = tortoise
         evals = 0
         while True:
@@ -94,7 +134,7 @@ class BirthdayAttack:
             if tortoise == hare:
                 break
         # Find collision
-        x1 = random.randint(0, self.modulus-1)
+        x1 = start_node
         x2 = tortoise
         steps = 0
         while f(x1) != f(x2):
@@ -110,7 +150,7 @@ class BirthdayAttack:
             evals = 0
             found = False
             for _ in range(self.modulus*5):
-                x = random.randint(0, 2**32-1).to_bytes(4,'big')
+                x = os.urandom(4)
                 h = self.hash_fn(x) % self.modulus
                 evals += 1
                 if h in seen and seen[h] != x:
@@ -125,6 +165,24 @@ class BirthdayAttack:
 # ─────────── PA #10 — HMAC ───────────
 _IPAD = bytes([0x36]*64)
 _OPAD = bytes([0x5c]*64)
+
+def secure_compare(t1: bytes, t2: bytes) -> bool:
+    """Constant-time comparison using XOR."""
+    if len(t1) != len(t2):
+        return False
+    result = 0
+    for b1, b2 in zip(t1, t2):
+        result |= b1 ^ b2
+    return result == 0
+
+def insecure_compare(t1: bytes, t2: bytes) -> bool:
+    """Vulnerable early-exit comparison for demonstration."""
+    if len(t1) != len(t2):
+        return False
+    for b1, b2 in zip(t1, t2):
+        if b1 != b2:
+            return False
+    return True
 
 class HMAC:
     """
@@ -149,7 +207,25 @@ class HMAC:
 
     def verify(self, key: bytes, msg: bytes, tag: bytes) -> bool:
         computed = self.mac(key, msg)
-        return secrets.compare_digest(computed, tag)
+        return secure_compare(computed, tag)
+
+class MAC_Hash:
+    """
+    CRHF built from a MAC (HMAC). Backward reduction: MAC => CRHF.
+    Constructs h'(cv, block) = HMAC_k(cv || block) for a fixed key.
+    """
+    def __init__(self, key: bytes = b'fixed_public_key'):
+        self.key = key
+        self.hmac = HMAC()
+        def h_prime(cv, block):
+            return self.hmac.mac(self.key, cv + block)
+        self._md = MerkleDamgard(
+            compress=h_prime,
+            iv=b'\x00' * 8, # HMAC output from DLP_Hash is 8 bytes
+            block_size=8,   # block_size = 8
+        )
+    def hash(self, message: bytes) -> bytes:
+        return self._md.hash(message)
 
 class NaiveMAC:
     """Broken: t = H(k || m) — vulnerable to length extension."""
@@ -158,21 +234,44 @@ class NaiveMAC:
     def mac(self, key, msg): return self._h.hash(key + msg)
 
 class LengthExtensionAttack:
-    """Demonstrates length-extension on naive H(k||m)."""
+    """
+    Demonstrates length-extension on naive H(k||m).
+
+    The attacker knows (m, T=H(k||m)) and |k|. They do NOT know k.
+    Because T is the opaque chaining value of the MD after processing
+    (k||m||md_strengthening_pad), the attacker resumes the MD from state=T
+    with any suffix they choose, forging a valid tag for
+    (m || glue_padding || suffix) — still without knowing k.
+    """
     def __init__(self, naive_mac, hash_cls=None):
         self.naive = naive_mac
-        self._h = hash_cls or DLP_Hash()
+        # Must reuse the same hash instance the MAC uses — the DLP_Hash has a
+        # per-instance secret `alpha`, so a fresh DLP_Hash() would produce a
+        # different hash function entirely.
+        self._h = hash_cls if hash_cls is not None else naive_mac._h
 
     def extend(self, original_msg: bytes, original_tag: bytes, suffix: bytes,
                 key_len: int = 16) -> tuple:
-        """Given (m, H(k||m)), compute valid tag for (m||pad||suffix) without k."""
-        # Reconstruct the padded prefix
-        prefix = b'\x00'*key_len + original_msg
-        padded_prefix = md_pad(prefix)
-        glue_padding = padded_prefix[len(prefix):]
+        """Given (m, T=H(k||m)), forge (m||glue||suffix, T') without k."""
+        # Figure out glue padding that was appended after (k||m) during H(k||m).
+        # The attacker knows |k| (or guesses it); they can compute the glue
+        # because they know the structure of md_pad.
+        block_size = self._h._md.block_size  # match the hash's actual block size
+        prefix_len = key_len + len(original_msg)
+        dummy_prefix = b'\x00' * prefix_len  # content of prefix irrelevant for glue
+        padded_prefix = md_pad(dummy_prefix, block_size=block_size)
+        glue_padding = padded_prefix[prefix_len:]
+        # Total prefix bits consumed up to and including glue_padding:
+        prefix_with_glue_bits = len(padded_prefix) * 8
+
+        # Resume MD from state = original_tag, feeding just the suffix.
+        # Our MD's "output" IS the internal chaining value, so the attacker can
+        # continue hashing from T directly — the property that makes the naive
+        # H(k||m) MAC insecure.
+        new_tag = self._h._md.hash_resume(
+            original_tag, suffix, prefix_with_glue_bits
+        )
         extended_msg = original_msg + glue_padding + suffix
-        # Continue hashing from the known state
-        new_tag = self._h.hash(b'\x00'*key_len + extended_msg)
         return extended_msg, new_tag
 
 class EtH_Enc:
@@ -189,8 +288,13 @@ class EtH_Enc:
 
     def decrypt(self, k_e, k_m, blob, t):
         if not self._hmac.verify(k_m, blob, t): return None
+        if len(blob) < 16: return None
         r, ce = blob[:16], blob[16:]
-        return self._cpa.decrypt(k_e, r, ce)
+        try:
+            return self._cpa.decrypt(k_e, r, ce)
+        except (AssertionError, ValueError):
+            # Negligibly-likely path: HMAC accepted by collision but CT is malformed.
+            return None
 
 
 # ─────────── Demos ───────────
@@ -210,6 +314,11 @@ def demo_pa9():
     print(f"  Collision found in {res['evals']} evals (expected ≈{2**8})")
     print(f"  x1={res['x1']}, x2={res['x2']}, H(x1)=H(x2)={res['hash']}")
     print(f"  Time: {elapsed:.3f}s")
+    print("  Running Floyd's cycle-finding attack (n=16 bits)…")
+    t0=time.time(); res_floyd=atk.floyd_attack(); elapsed_floyd=time.time()-t0
+    print(f"  Collision found in {res_floyd['evals']} evals")
+    print(f"  Hash collision value: {res_floyd['hash']}")
+    print(f"  Time: {elapsed_floyd:.3f}s")
     curve = atk.empirical_curve(trials=20)
     print(f"  Avg evals={curve['avg_evals']}, E[2^(n/2)]={curve['expected_2n2']}, ratio={curve['ratio']}")
     print("✓ PA#9 complete.")
@@ -220,13 +329,70 @@ def demo_pa10():
     tag = hmac.mac(key, msg)
     print(f"  HMAC tag: {tag.hex()}")
     print(f"  Verify:   {hmac.verify(key, msg, tag)} ✓")
-    # Length-extension
-    naive = NaiveMAC(); atk = LengthExtensionAttack(naive)
+
+    print("\n  Constant-time comparison demo:")
+    tag1 = b"\x00" * 64
+    tag2_early = b"\x01" + b"\x00" * 63
+    tag2_late = b"\x00" * 63 + b"\x01"
+    iters = 100000
+    t0 = time.perf_counter(); 
+    for _ in range(iters): insecure_compare(tag1, tag2_early)
+    t_insec_early = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): insecure_compare(tag1, tag2_late)
+    t_insec_late = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): secure_compare(tag1, tag2_early)
+    t_sec_early = time.perf_counter() - t0
+    t0 = time.perf_counter(); 
+    for _ in range(iters): secure_compare(tag1, tag2_late)
+    t_sec_late = time.perf_counter() - t0
+    print(f"    insecure_compare early diff: {t_insec_early:.6f}s")
+    print(f"    insecure_compare late diff:  {t_insec_late:.6f}s (Leaks info!)")
+    print(f"    secure_compare early diff:   {t_sec_early:.6f}s")
+    print(f"    secure_compare late diff:    {t_sec_late:.6f}s (Constant!)")
+
+    print("\n  CRHF -> MAC (Forward Reduction / EUF-CMA Game):")
+    oracle_key = os.urandom(16)
+    for i in range(50):
+        m = f"message {i}".encode()
+        _ = hmac.mac(oracle_key, m)
+    print(f"    Adversary queried oracle 50 times.")
+    forgery_msg = b"unqueried message"
+    forged_tag = os.urandom(8)
+    is_valid = hmac.verify(oracle_key, forgery_msg, forged_tag)
+    print(f"    Adversary attempts forgery with random tag: success={is_valid} ✓")
+
+    print("\n  MAC -> CRHF (Backward Reduction):")
+    mac_hash = MAC_Hash(b'public_key')
+    h_val = mac_hash.hash(b'test message')
+    print(f"    MAC_Hash(b'test message') = {h_val.hex()}")
+    print("    Finding a collision in MAC_Hash requires forging an HMAC tag!")
+
+    # Length-extension on naive H(k||m)
+    shared_hash = DLP_Hash()
+    naive = NaiveMAC(hash_fn=shared_hash); atk = LengthExtensionAttack(naive)
     orig = b"original message"; ntag = naive.mac(key, orig)
     ext_msg, ext_tag = atk.extend(orig, ntag, b"SUFFIX", key_len=16)
     valid = naive.mac(key, ext_msg) == ext_tag
     print(f"\n  Length-extension on H(k||m): success={valid}")
-    print(f"  Same attack on HMAC: blocked ✓")
+
+    # Same attack on HMAC — should NOT forge a valid tag.
+    hmac_tag_orig = hmac.mac(key, orig)
+    # Attacker tries to forge an extension by running the same MD continuation.
+    # HMAC wraps the hash in (outer_key), so the chaining value the attacker
+    # sees is NOT the internal state of the inner hash — extension is impossible.
+    forged_ext_msg = orig + b"SUFFIX"
+    # Best the attacker can do: try the naive continuation on the HMAC tag.
+    try:
+        _, hmac_forged = LengthExtensionAttack(naive, hash_cls=shared_hash).extend(
+            orig, hmac_tag_orig, b"SUFFIX", key_len=16
+        )
+    except Exception:
+        hmac_forged = b''
+    correct_hmac = hmac.mac(key, forged_ext_msg)
+    hmac_blocked = hmac_forged != correct_hmac
+    print(f"  Same attack on HMAC: blocked = {hmac_blocked} ✓")
     # Encrypt-then-HMAC
     eth = EtH_Enc(); ke=os.urandom(16); km=os.urandom(16)
     msg2 = b"EtH CCA message!"

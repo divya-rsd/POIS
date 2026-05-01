@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #9 - Birthday Attack</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .chart-wrapper { height: 300px; width: 100%; margin-top: 20px; }
+  .stat-box { text-align: center; padding: 15px; border-radius: var(--r2); background: var(--surface2); border: 1px solid var(--border2); }
+  .stat-val { font-family: var(--mono); font-size: 24px; color: var(--accent); margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #9</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Live Birthday Attack</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Explore how the probability of finding a hash collision grows with the number of hashes computed. The empirical results track closely with the theoretical birthday paradox curve.</div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl" style="margin-bottom:10px">Truncated Hash Size: <span id="bit-val" style="color:var(--accent)">16</span> bits</div>
+      <div class="slider-container">
+        <input type="range" id="hash-bits" min="8" max="16" step="1" value="16">
+      </div>
+      
+      <div class="hero-sub" style="margin-top:15px; margin-bottom:15px">
+        Search Space: 2^<span id="space-val">16</span> = <span id="space-num">65536</span> possible outputs.<br>
+        Expected attempts for collision ≈ <span id="exp-val">256</span>.
+      </div>
+      
+      <button class="btn btn-primary" id="btn-run">▶ Run 10 Attacks & Plot</button>
+      <div id="run-status" class="status" style="display:none; margin-top:15px"></div>
+    </div>
+    
+    <div class="grid-2" style="gap:10px">
+      <div class="stat-box">
+        <div class="fl">Avg. Attempts</div>
+        <div class="stat-val" id="stat-avg">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="fl">Theoretical 50%</div>
+        <div class="stat-val" id="stat-theory">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <div class="fl">Empirical vs Theoretical Curve</div>
+    <div class="chart-wrapper">
+      <canvas id="attackChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa9_demo.js"></script>
+</body>
+</html>

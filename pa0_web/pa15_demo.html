@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #15 - Digital Signatures</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .sig-blob { font-family: var(--mono); font-size: 11px; background: var(--surface3); padding: 10px; border-radius: var(--r); word-break: break-all; color: var(--accent); border: 1px solid var(--border2); min-height: 80px; }
+  .btn-flip { padding: 4px 8px; font-size: 10px; margin-top: 5px; background: transparent; border: 1px dashed var(--text3); color: var(--text3); border-radius: var(--r); cursor: pointer; transition: var(--t); }
+  .btn-flip:hover { border-color: var(--accent); color: var(--accent); background: var(--surface2); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #15</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Digital Signatures</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Sign a document using RSA-PSS or Textbook RSA. Verify the signature, then tamper with the document or the signature to see how the verification fails.</div>
+
+  <div class="card fg" style="margin-bottom: 20px;">
+    <div class="row">
+      <div class="fg" style="flex:1">
+        <div class="fl">Document to Sign</div>
+        <input type="text" id="sig-msg" value="I agree to pay 100 USD.">
+      </div>
+      <div class="fg">
+        <div class="fl" style="margin-bottom:5px">Mode</div>
+        <select id="sig-mode" style="height:34px; background:var(--surface); color:var(--text); border:1px solid var(--border2); border-radius:4px; padding:0 10px; font-family:var(--mono); font-size:12px;">
+          <option value="pss">RSA-PSS (Secure)</option>
+          <option value="textbook">Textbook RSA (Insecure)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btn-sign" style="align-self: flex-end;">▶ Sign Document</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Signature Blob (Hex)</div>
+      <div class="sig-blob" id="sig-out">Waiting for signature...</div>
+      
+      <div class="row" style="margin-top:10px">
+        <button class="btn-flip" id="btn-flip-sig">Tamper Signature</button>
+        <button class="btn-flip" id="btn-flip-msg">Tamper Document</button>
+      </div>
+    </div>
+
+    <div class="card fg" style="display:flex; flex-direction:column; justify-content:center;">
+      <div class="fl" style="text-align:center; margin-bottom:15px">Verification</div>
+      <button class="btn" id="btn-verify" style="align-self: center; min-width:200px">Verify Signature</button>
+      <div id="verify-status" class="status" style="display:none; margin-top:15px; text-align:center"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa15_demo.js"></script>
+</body>
+</html>

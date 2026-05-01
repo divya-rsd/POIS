@@ -13,6 +13,7 @@ Implements:
 """
 
 import os
+import secrets
 import struct
 from typing import Tuple
 import sys, os as _os
@@ -22,26 +23,12 @@ from pa2.prf_ggm import PRF
 
 BLOCK_SIZE = 16  # bytes
 
-
 def _int_to_block(n: int) -> bytes:
     return n.to_bytes(BLOCK_SIZE, 'big')
 
 
 def _xor_bytes(a: bytes, b: bytes) -> bytes:
     return bytes(x ^ y for x, y in zip(a, b))
-
-
-def _pad(data: bytes, block_size: int = BLOCK_SIZE) -> bytes:
-    """PKCS#7-style padding."""
-    pad_len = block_size - (len(data) % block_size)
-    return data + bytes([pad_len] * pad_len)
-
-
-def _unpad(data: bytes) -> bytes:
-    pad_len = data[-1]
-    assert 1 <= pad_len <= BLOCK_SIZE
-    assert data[-pad_len:] == bytes([pad_len] * pad_len)
-    return data[:-pad_len]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -66,29 +53,42 @@ class CPA_Enc:
         Supports multi-block messages via counter extension.
         """
         r = os.urandom(BLOCK_SIZE)
-        padded = _pad(message)
         ciphertext = bytearray()
-        n_blocks = len(padded) // BLOCK_SIZE
+        
+        # Ceiling division to get total blocks needed
+        n_blocks = (len(message) + BLOCK_SIZE - 1) // BLOCK_SIZE 
+        
         for i in range(n_blocks):
-            # Counter block: r || (r_int + i) mod 2^128
             r_int = int.from_bytes(r, 'big')
             ctr = ((r_int + i) % (2**128)).to_bytes(BLOCK_SIZE, 'big')
             keystream = self._prf_block(key, ctr)
-            pt_block = padded[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
-            ciphertext.extend(_xor_bytes(keystream, pt_block))
+            
+            # Slice the message chunk (might be smaller than BLOCK_SIZE on last iteration)
+            pt_chunk = message[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
+            
+            # Truncate keystream to match the chunk size
+            keystream = keystream[:len(pt_chunk)] 
+            
+            ciphertext.extend(_xor_bytes(keystream, pt_chunk))
+            
         return r, bytes(ciphertext)
 
     def decrypt(self, key: bytes, r: bytes, ciphertext: bytes) -> bytes:
         """Decrypt ciphertext c with nonce r."""
-        padded = bytearray()
-        n_blocks = len(ciphertext) // BLOCK_SIZE
+        plaintext = bytearray()
+        n_blocks = (len(ciphertext) + BLOCK_SIZE - 1) // BLOCK_SIZE
+        
         for i in range(n_blocks):
             r_int = int.from_bytes(r, 'big')
             ctr = ((r_int + i) % (2**128)).to_bytes(BLOCK_SIZE, 'big')
             keystream = self._prf_block(key, ctr)
-            ct_block = ciphertext[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
-            padded.extend(_xor_bytes(keystream, ct_block))
-        return _unpad(bytes(padded))
+            
+            ct_chunk = ciphertext[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
+            keystream = keystream[:len(ct_chunk)]
+            
+            plaintext.extend(_xor_bytes(keystream, ct_chunk))
+            
+        return bytes(plaintext)
 
     def encrypt_full(self, key: bytes, message: bytes) -> bytes:
         """Convenience: returns r || ciphertext as single blob."""
@@ -114,14 +114,22 @@ class BrokenDeterministicEnc:
         self._fixed_nonce = b'\x00' * BLOCK_SIZE
 
     def encrypt(self, key: bytes, message: bytes) -> Tuple[bytes, bytes]:
-        padded = _pad(message)
         ciphertext = bytearray()
-        n_blocks = len(padded) // BLOCK_SIZE
+        n_blocks = (len(message) + BLOCK_SIZE - 1) // BLOCK_SIZE 
         for i in range(n_blocks):
-            keystream = self.prf.evaluate(key, self._fixed_nonce)
-            pt_block = padded[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
-            ciphertext.extend(_xor_bytes(keystream, pt_block))
+            r_int = int.from_bytes(self._fixed_nonce, 'big')
+            ctr = ((r_int + i) % (2**128)).to_bytes(BLOCK_SIZE, 'big')
+            keystream = self.prf.evaluate(key, ctr)
+            
+            pt_chunk = message[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE]
+            keystream = keystream[:len(pt_chunk)] 
+            
+            ciphertext.extend(_xor_bytes(keystream, pt_chunk))
         return self._fixed_nonce, bytes(ciphertext)
+
+    def encrypt_full(self, key: bytes, message: bytes) -> bytes:
+        r, ct = self.encrypt(key, message)
+        return r + ct
 
 
 # ─────────────────────────────────────────────────────────────
@@ -148,8 +156,8 @@ class IND_CPA_Game:
     def challenge(self, m0: bytes, m1: bytes) -> bytes:
         """Challenger encrypts one of m0, m1; adversary must guess which."""
         assert len(m0) == len(m1), "Challenge messages must be equal length"
-        import random
-        self._b = random.randint(0, 1)
+        # CSPRNG bit (secrets.randbits → os.urandom).
+        self._b = secrets.randbits(1)
         chosen = m0 if self._b == 0 else m1
         return self.scheme.encrypt_full(self.key, chosen)
 
@@ -169,7 +177,6 @@ class IND_CPA_Game:
 
     def run_dummy_adversary(self, n_rounds: int = 50) -> dict:
         """Simulate dummy adversary (random guessing) — advantage ≈ 0."""
-        import random
         self._wins = 0
         self._rounds = 0
         # Adversary queries oracle 50 times first
@@ -178,8 +185,8 @@ class IND_CPA_Game:
         # Then plays n_rounds of challenge
         for _ in range(n_rounds):
             ct = self.challenge(b"message zero!!!!",
-                                b"message one!!!!!!")
-            b_guess = random.randint(0, 1)  # Random guess
+                                b"message one!!!! ")
+            b_guess = secrets.randbits(1)  # CSPRNG random guess
             self.guess(b_guess)
         return {
             'rounds': self._rounds,
@@ -189,38 +196,36 @@ class IND_CPA_Game:
             'secure': self.advantage() < 0.1
         }
 
-    def run_nonce_reuse_adversary(self, broken_enc: BrokenDeterministicEnc,
-                                   n_rounds: int = 20) -> dict:
-        """Adversary that exploits nonce reuse — wins every time."""
-        broken_key = os.urandom(16)
+    def run_nonce_reuse_adversary(self, n_rounds: int = 20) -> dict:
+        """Adversary that exploits nonce reuse using ONLY the oracle."""
+        # We assume self.scheme is currently set to the Broken variant
         wins = 0
         for _ in range(n_rounds):
             m0 = b"vote:Alice??????"
             m1 = b"vote:Bob????????"
-            # Encrypt m0 and m1 separately — nonce reuse means same CT if same msg
-            _, ct0 = broken_enc.encrypt(broken_key, m0)
-            _, ct1 = broken_enc.encrypt(broken_key, m1)
-            # Get challenge
-            import random
-            b_actual = random.randint(0, 1)
-            m_chosen = m0 if b_actual == 0 else m1
-            _, ct_challenge = broken_enc.encrypt(broken_key, m_chosen)
-            # Adversary: compare challenge CT to known CTs
+            
+            # 1. Get the challenge ciphertext from the challenger
+            ct_challenge = self.challenge(m0, m1)
+            
+            # 2. Query the ORACLE for m0 (Adversary does NOT know the key)
+            ct0 = self.encrypt_oracle(m0)
+            
+            # 3. Compare. If they match, the challenger encrypted m0.
             if ct_challenge == ct0:
                 b_guess = 0
-            elif ct_challenge == ct1:
-                b_guess = 1
             else:
-                b_guess = random.randint(0, 1)
-            if b_guess == b_actual:
+                b_guess = 1
+                
+            if self.guess(b_guess):
                 wins += 1
+                
         adv = abs(wins / n_rounds - 0.5)
         return {
             'rounds': n_rounds,
             'wins': wins,
             'advantage': round(adv, 4),
             'secure': adv < 0.1,
-            'note': 'Nonce reuse breaks CPA security — identical CT for identical PT'
+            'note': 'Nonce reuse breaks CPA security — adversary queries oracle to find match.'
         }
 
 
@@ -264,7 +269,8 @@ def demo():
     # Nonce reuse attack
     print("\n[Nonce Reuse Attack on Broken Scheme]")
     broken = BrokenDeterministicEnc()
-    broken_result = game.run_nonce_reuse_adversary(broken, 20)
+    broken_game = IND_CPA_Game(broken)
+    broken_result = broken_game.run_nonce_reuse_adversary(20)
     print(f"  Advantage: {broken_result['advantage']} (close to 0.5 = broken!)")
     print(f"  Note: {broken_result['note']}")
 

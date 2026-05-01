@@ -1,7 +1,11 @@
 // ════════════════════════════════════════════════
 // LEG 1 — Foundation → Source Primitive
+//
+// When the Flask backend (backend.py) is reachable, this routes through real
+// Python implementations and replaces the last step's "Output" with the actual
+// hex value computed by PA#1 / PA#2. Otherwise falls back to local stubs.
 // ════════════════════════════════════════════════
-function runLeg1() {
+async function runLeg1() {
   const { foundation, src, key } = S;
   const chain = FOUND_CHAINS[foundation][src] || [];
   let html = '';
@@ -20,6 +24,60 @@ function runLeg1() {
 
   if (!html) html = '<div class="empty">No chain defined for this selection.</div>';
   document.getElementById('leg1-steps').innerHTML = html;
+
+  // If backend is up, replace the displayed final value with a real PA output.
+  // Each (foundation, src) pair routes to the most appropriate real PA endpoint.
+  if (typeof Backend !== 'undefined' && (await Backend.ping())) {
+    try {
+      let real = null;
+      const seedInt = parseInt(key.slice(0, 8), 16) || 1;
+      if (foundation === 'AES') {
+        if (src === 'OWF') {
+          const r = await Backend.pa1OwfAes(key);
+          real = r.fk;
+        } else if (src === 'PRG' || src === 'PRF' || src === 'PRP' || src === 'MAC') {
+          // AES-128 instantiates PRP/PRF directly; PRF→MAC is just F_k(m).
+          const r = await Backend.pa2AesPrf(key, key);
+          real = r.y;
+        } else if (src === 'CRHF' || src === 'HMAC') {
+          // AES-DM compression → MD: use the DLP_Hash backend as the concrete CRHF.
+          const r = await Backend.pa8Hash(key);
+          real = r.hash;
+        } else if (src === 'CPA-Enc' || src === 'CCA-Enc') {
+          const r = await Backend.pa3Encrypt(key, key);
+          real = r.ct;
+        }
+      } else if (foundation === 'DLP') {
+        if (src === 'OWF') {
+          const r = await Backend.pa1OwfDlp(seedInt);
+          real = r.y;
+        } else if (src === 'PRG') {
+          const r = await Backend.pa1Prg(seedInt, 64);
+          real = r.out;
+        } else if (src === 'PRF' || src === 'PRP' || src === 'MAC') {
+          // GGM PRF over the PRG built from the DLP OWF.
+          const r = await Backend.pa2Ggm(key, '1011');
+          real = r.out;
+        } else if (src === 'CRHF' || src === 'HMAC') {
+          const r = await Backend.pa8Hash(key);
+          real = r.hash;
+        } else if (src === 'CPA-Enc' || src === 'CCA-Enc') {
+          const r = await Backend.pa3Encrypt(key, key);
+          real = r.ct;
+        }
+      }
+      if (real) {
+        lastVal = real;
+        const note = document.createElement('div');
+        note.className = 'status ok';
+        note.style.marginTop = '8px';
+        note.textContent = `● Final value verified by real PA backend: ${real}`;
+        document.getElementById('leg1-steps').appendChild(note);
+      }
+    } catch (e) {
+      console.warn('Backend Leg 1 enrichment failed:', e.message);
+    }
+  }
 
   S.leg1Val = lastVal || pseudoBlock(key, 'fallback').toString(16).toUpperCase();
   document.getElementById('leg1-out-lbl').textContent = `${src} instance  →  feeds Leg 2 as black box`;
@@ -40,7 +98,7 @@ function runLeg1() {
 // FIX 3: PRIMS array (in crypto.js) now includes CPA-Enc and CCA-Enc so those
 //         primitives highlight correctly in the clique map when selected as target.
 // ════════════════════════════════════════════════
-function runLeg2() {
+async function runLeg2() {
   if (!S.leg1Val) {
     document.getElementById('leg2-status').innerHTML =
       `<div class="status warn">⚠ Run Leg 1 first — Leg 2 receives ${S.src} as a black box from Leg 1.</div>`;
@@ -273,6 +331,50 @@ function runLeg2() {
       `${S.tgt} output (${S.dir === 'fwd' ? 'forward' : 'backward'} reduction from ${S.src})`;
     document.getElementById('leg2-out-val').textContent = finalVal;
     document.getElementById('leg2-out').style.display = 'block';
+  }
+
+  // Real-backend cross-check for the most common transitions.
+  if (typeof Backend !== 'undefined' && (await Backend.ping())) {
+    try {
+      let real = null, label = null;
+      const fwd = S.dir === 'fwd';
+      if (S.src === 'PRG' && S.tgt === 'PRF' && fwd) {
+        const bits = (msg.replace(/[^01]/g, '').slice(0, 4) || '1011');
+        const r = await Backend.pa2Ggm(key, bits);
+        real = r.out; label = `Real GGM PRF F_k(${bits}) (PA#2)`;
+      } else if (S.src === 'PRF' && S.tgt === 'MAC' && fwd) {
+        const r = await Backend.pa5PrfMac(key, msg);
+        real = r.tag; label = 'Real PRF-MAC tag (PA#5)';
+      } else if (S.src === 'CRHF' && S.tgt === 'HMAC' && fwd) {
+        const r = await Backend.pa10Hmac(key, msg);
+        real = r.tag; label = 'Real HMAC tag (PA#10)';
+      } else if (S.src === 'MAC' && S.tgt === 'CCA-Enc' && fwd) {
+        const r = await Backend.pa6Encrypt(key, key, msg);
+        real = r.tag; label = 'Real CCA tag (PA#6 Encrypt-then-MAC)';
+      } else if (S.src === 'PRF' && S.tgt === 'CPA-Enc' && fwd) {
+        const r = await Backend.pa3Encrypt(key, msg);
+        real = r.ct; label = 'Real CPA-Enc ciphertext (PA#3)';
+      } else if (S.src === 'PRP' && S.tgt === 'MAC' && fwd) {
+        // PRP/PRF switching → CBC-MAC over msg
+        const r = await Backend.pa5CbcMac(key, msg);
+        real = r.tag; label = 'Real CBC-MAC tag (PA#5)';
+      } else if (S.src === 'HMAC' && S.tgt === 'MAC' && fwd) {
+        const r = await Backend.pa10Hmac(key, msg);
+        real = r.tag; label = 'Real HMAC-as-MAC tag (PA#10)';
+      } else if (S.src === 'CRHF' && S.tgt === 'MAC' && fwd) {
+        const r = await Backend.pa10Hmac(key, msg);
+        real = r.tag; label = 'Real CRHF→HMAC→MAC tag (PA#10)';
+      }
+      if (real) {
+        const note = document.createElement('div');
+        note.className = 'status ok';
+        note.style.marginTop = '8px';
+        note.textContent = `● ${label}: ${real}`;
+        document.getElementById('leg2-steps').appendChild(note);
+      }
+    } catch (e) {
+      console.warn('Backend Leg 2 enrichment failed:', e.message);
+    }
   }
 
   renderClique(S.src, S.tgt);

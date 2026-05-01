@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PA #13 - Miller-Rabin</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Playfair+Display:wght@500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .layout-pa { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  .trace-box { max-height: 250px; overflow-y: auto; background: var(--surface2); padding: 10px; border-radius: var(--r); border: 1px solid var(--border2); font-family: var(--mono); font-size: 10px; color: var(--text2); line-height: 1.6; }
+  .trace-item { border-bottom: 1px dashed var(--border); padding-bottom: 4px; margin-bottom: 4px; }
+  .trace-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .witness { color: var(--accent); }
+  .composite-reason { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">∥</div>
+    <div class="logo-text"> &nbsp;<em>Minicrypt</em> PA #13</div>
+  </div>
+  <div class="bar-section">
+    <a href="index.html" class="btn btn-ghost btn-sm" style="text-decoration:none">← Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="layout-pa">
+  <div class="demo-title">Miller-Rabin Primality Tester</div>
+  <div class="hero-sub" style="margin-bottom: 24px;">Test large numbers for primality probabilistically. Demonstrates how pseudoprimes (like Carmichael numbers) are caught.</div>
+
+  <div class="grid-2">
+    <div class="card fg">
+      <div class="fl">Integer N</div>
+      <input type="text" id="mr-n" value="561" placeholder="Enter integer">
+      <div style="font-size:10px; color:var(--text3); margin-top:4px;">Try a Carmichael number like 561.</div>
+      
+      <div class="fl" style="margin-top: 15px;">Rounds (k): <span id="mr-k-val" style="color:var(--accent)">40</span></div>
+      <div class="slider-container">
+        <input type="range" id="mr-k" min="1" max="100" step="1" value="40">
+      </div>
+      
+      <button class="btn btn-primary" id="btn-test" style="margin-top: 20px;">▶ Test Primality</button>
+      
+      <div id="mr-status" class="status" style="display:none; margin-top:20px; text-align:center; font-size: 16px; font-weight: 600;"></div>
+      <div id="mr-time" style="text-align:center; font-size:11px; color:var(--text3); margin-top:5px;"></div>
+    </div>
+
+    <div class="card fg">
+      <div class="fl" style="margin-bottom: 10px;">Execution Trace & Witnesses</div>
+      <div class="trace-box" id="mr-trace">
+        Waiting for test...
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="pa13_demo.js"></script>
+</body>
+</html>
