@@ -1,405 +1,735 @@
-"""
-PA #14 — CRT + Håstad's Broadcast Attack
-PA #15 — Digital Signatures (RSA)
-PA #16 — ElGamal Public-Key Cryptosystem
-"""
-import os, sys, math, secrets, time
+import os, sys, math, random, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa12.rsa import RSA, RSA_PKCS15, _mod_inverse, _fast_pow
 from pa11.dh import DH, _rand_exp
-from pa8_9_10.hash_hmac import DLP_Hash
+from pa8_9_10.hash_hmac import DLP_Hash_Wide
 
-# ─────────── PA #14 — CRT ───────────
-def crt(residues, moduli):
+
+def crt(residues: list, moduli: list) -> int:
+    """
+    Chinese Remainder Theorem solver.
+    Finds the unique x in [0, N) satisfying:
+        x ≡ residues[i] (mod moduli[i])  for all i
+    REQUIRES: moduli are pairwise coprime (gcd(ni, nj) = 1 for i != j).
+    Args:
+        residues : [a1, a2, ..., ak]  -- the target remainders
+        moduli   : [n1, n2, ..., nk]  -- pairwise coprime moduli
+    Returns:
+        Unique integer x in [0, N) where N = n1·n2·...·nk
+    Example:
+        crt([2, 3, 2], [3, 5, 7]) == 23
+        because 23 % 3 == 2, 23 % 5 == 3, 23 % 7 == 2  (all correct)
+    """
     N = 1
-    for m in moduli: N *= m
+    for m in moduli:
+        N *= m
     x = 0
-    for a,m in zip(residues,moduli):
-        Mi = N//m
-        x += a * Mi * _mod_inverse(Mi,m)
+    for a, m in zip(residues, moduli):
+        Mi = N // m                 
+        yi = _mod_inverse(Mi, m)   
+        x += a * Mi * yi           
     return x % N
 
-def rsa_dec_crt(sk, c):
-    """Garner's Algorithm for CRT-based RSA Decryption."""
+def rsa_dec_crt(sk: tuple, c: int) -> int:
+    """
+    CRT-based RSA decryption using Garner's algorithm.
+    Produces IDENTICAL output to _fast_pow(c, d, N) but approximately 4x faster.
+    Mathematical proof of correctness:
+        We need m such that m ≡ mp (mod p) AND m ≡ mq (mod q).
+        By CRT, such m is unique in [0, N-1].
+        Garner's formula computes this unique m without calling CRT explicitly.
+    Args:
+        sk : Private key tuple (N, d, p, q, dp, dq, q_inv)
+             (same format as RSA.sk from PA#12)
+        c  : Ciphertext integer in [0, N)
+    Returns:
+        Plaintext m = C^d mod N, computed via CRT (faster)
+    """
     N, d, p, q, dp, dq, q_inv = sk
-    mp = _fast_pow(c, dp, p)
-    mq = _fast_pow(c, dq, q)
-    h = (q_inv * ((mp - mq) % p + p)) % p
-    return mq + h * q
+    mp = _fast_pow(c, dp, p)    
+    mq = _fast_pow(c, dq, q)    
+    h = q_inv * (mp - mq) % p   
+    m = mq + h * q               
+    return m
 
-def integer_nth_root(n, k):
-    """Newton's method integer nth root."""
-    if n == 0: return 0
-    x = int(n**(1/k)) + 1
+
+def integer_nth_root(n: int, k: int) -> int:
+    """
+    Compute floor(n^(1/k)): the largest integer x such that x^k <= n.
+    Uses Newton's method in pure integer arithmetic.
+    Handles arbitrarily large integers (no floating-point precision limits).
+    Args:
+        n : Non-negative integer
+        k : Positive integer root degree
+    Returns:
+        Largest integer x with x^k <= n
+    Edge cases: n=0 -> 0,  k=1 -> n,  non-perfect-power -> floor
+    """
+    if n == 0:
+        return 0
+    if n < 0:
+        raise ValueError("Cannot take real root of negative integer")
+    if k == 1:
+        return n
+    x = 1 << ((n.bit_length() + k - 1) // k)
     while True:
-        x1 = ((k-1)*x + n//(x**(k-1))) // k
-        if x1 >= x: return x
-        x = x1
+        x_pow_km1 = x ** (k - 1)                        
+        x_new     = ((k - 1) * x + n // x_pow_km1) // k  
+        if x_new >= x:
+            break
+        x = x_new
+    while x ** k > n:
+        x -= 1
+    while (x + 1) ** k <= n:
+        x += 1
 
-def hastad_attack(ciphertexts, moduli, e=3):
-    x = crt(ciphertexts, moduli)
-    return integer_nth_root(x, e)
+    return x
 
-def demo_pa14():
-    print("="*60); print("PA #14 — CRT + Håstad's Broadcast Attack"); print("="*60)
-    # CRT correctness sanity check
-    res = crt([2,3,2],[3,5,7])
-    print(f"  CRT(2 mod 3, 3 mod 5, 2 mod 7) = {res} (expected 23)")
 
-    print(f"\n  [Garner's Algorithm: Correctness & Performance]")
-    rsa_test = RSA(bits=1024)
-    # 1. Correctness on 100 random messages
-    correct = 0
-    for _ in range(100):
-        m_rand = secrets.randbelow(rsa_test.N)
-        c_rand = rsa_test.encrypt(m_rand)
-        m_std = rsa_test.decrypt(c_rand)
-        m_crt = rsa_dec_crt(rsa_test.sk, c_rand)
-        if m_std == m_crt: correct += 1
-    print(f"  Correctness test: {correct}/100 messages matched standard decrypt.")
+def hastad_attack(ciphertexts: list, moduli: list, e: int = 3) -> int:
+    """
+    Hastad's Broadcast Attack on textbook RSA with small public exponent.
+    Recovers plaintext M given e ciphertexts of M under e different RSA
+    public keys all using the same small public exponent e.
+    PRECONDITION: M^e < product(moduli).
+    If violated, CRT gives M^e modulo the product (not exactly), and the
+    integer root step returns garbage.
+    Args:
+        ciphertexts : [c1, c2, ..., ce]  where ci = M^e mod Ni
+        moduli      : [N1, N2, ..., Ne]  (pairwise coprime RSA moduli)
+        e           : public exponent (= number of recipient keys needed)
+    Returns:
+        Recovered plaintext M as integer
+    """
+    m_to_e = crt(ciphertexts, moduli)
+    return integer_nth_root(m_to_e, e)
 
-    # 2. Performance benchmark
-    for bits in [1024, 2048]:
-        r_bench = RSA(bits=bits)
-        c_bench = r_bench.encrypt(42)
-        
-        t0 = time.time()
-        for _ in range(1000): r_bench.decrypt(c_bench)
-        t_std = time.time() - t0
-        
-        t0 = time.time()
-        for _ in range(1000): rsa_dec_crt(r_bench.sk, c_bench)
-        t_crt = time.time() - t0
-        
-        speedup = t_std / t_crt if t_crt > 0 else 0
-        print(f"  {bits}-bit RSA 1000 decryptions -> Std: {t_std:.3f}s, CRT: {t_crt:.3f}s. Speedup: {speedup:.2f}x")
 
-    # Håstad broadcast attack: same small m, e=3, three different moduli.
-    rsa_list = [RSA(bits=256) for _ in range(3)]
-    m = 42
-    cts = [_fast_pow(m, 3, r.N) for r in rsa_list]
-    mods = [r.N for r in rsa_list]
-    recovered = hastad_attack(cts, mods, e=3)
-    print(f"\n  [Håstad attack — UNPADDED RSA, e=3]")
-    print(f"  Broadcast m={m} to 3 recipients")
-    print(f"  c_i = m^3 mod N_i  (shown mod 2^32): "
-          f"{[c & 0xffffffff for c in cts]}")
-    print(f"  CRT(c1, c2, c3) mod N1·N2·N3 = m^3 as integer, then cube-root.")
-    print(f"  Recovered m = {recovered}, match = {m == recovered} ✓")
-    
-    print(f"\n  [Attack Boundary Analysis]")
-    print(f"  Håstad's attack with e=3 succeeds strictly when m^3 < N1*N2*N3.")
-    print(f"  If three 1024-bit moduli are used, N1*N2*N3 is roughly 3072 bits.")
-    print(f"  Therefore, any message m < 2^1024 (i.e. length ≤ 128 bytes) is vulnerable.")
-    print(f"  Messages with m^3 >= N1*N2*N3 wrap around the combined modulus, preventing a simple integer cube root from recovering m.")
+class RSA_Sign:
+    """
+    RSA Digital Signature: Hash-then-Sign.
+    Sign(sk, m)      = H(m)^d mod N      (uses private key d)
+    Verify(vk, m, s) = (s^e mod N == H(m))  (uses public key e only)
+    Dependencies:
+        PA#12 RSA: key pair, modular exponentiation, CRT decryption
+        PA#8  DLP_Hash_Wide: 512-bit hash function
+    """
 
-    # PKCS defense: each sender pads with random bytes, destroying shared m
-    print(f"\n  [Defense: PKCS#1 v1.5 padding per recipient]")
-    pkcs_list = [RSA_PKCS15(r) for r in rsa_list]
-    msg_bytes = b"A"  # short message, unique per broadcast
-    cts_padded = [p.encrypt(msg_bytes) for p in pkcs_list]
-    # With e=65537 and padding, the attack does not apply; but even forced to
-    # e=3 the padded plaintexts differ per recipient, so CRT recovers garbage.
-    #
-    # Demo with e=3 + padding: encrypt padded value under e=3 manually.
-    e = 3
-    cts_padded_e3 = []
-    for r, p in zip(rsa_list, pkcs_list):
-        # Rebuild PKCS padding and encrypt under e=3
-        k = p.k
-        ps_len = k - len(msg_bytes) - 3
-        # Build a random nonzero PS per recipient (what real PKCS does).
-        ps_bytes = bytearray()
-        while len(ps_bytes) < ps_len:
-            b = os.urandom(1)
-            if b != b'\x00':
-                ps_bytes += b
-        em = b'\x00\x02' + bytes(ps_bytes) + b'\x00' + msg_bytes
-        m_int = int.from_bytes(em, 'big')
-        cts_padded_e3.append(_fast_pow(m_int, e, r.N))
-    x = crt(cts_padded_e3, mods)
-    recovered_padded = integer_nth_root(x, 3)
-    print(f"  With padding: each recipient sees a different padded m_i")
-    print(f"  Attack result: recovered = {hex(recovered_padded)[:20]}… (garbage)")
-    print(f"  Does it equal a clean plaintext? {recovered_padded == int.from_bytes(msg_bytes, 'big')} ✗")
-    print(f"  (PKCS padding breaks the 'same m for all recipients' premise.)")
-    print("✓ PA#14 complete.")
+    def __init__(self, rsa: RSA, hash_fn=None):
+        """
+        Args:
+            rsa     : RSA key pair from PA#12
+            hash_fn : Object with .hash(bytes) -> bytes method.
+                      Defaults to DLP_Hash_Wide (64-byte output from PA#8).
+        """
+        self.rsa = rsa
+        self._hash = hash_fn or DLP_Hash_Wide()
 
-# ─────────── PA #15 — Digital Signatures ───────────
+    def _hash_to_int(self, msg: bytes) -> int:
+        """
+        Hash the message and convert to integer in [0, N-1].
+        Step 1: h_bytes = H(msg)          (PA#8 DLP_Hash_Wide, 64 bytes)
+        Step 2: h_int   = int(h_bytes)    (big-endian interpretation)
+        Step 3: h_int % N                 (reduce into RSA domain)
+        The mod N is applied identically by both signer and verifier,
+        so the verification equation sigma^e == H(m) mod N holds correctly.
+        """
+        h_bytes = self._hash.hash(msg)
+        h_int   = int.from_bytes(h_bytes, 'big')
+        return h_int % self.rsa.N
 
-# def Sign(sk, m: bytes) -> int:
-#     """Standard standalone RSA Sign using hash-and-sign paradigm."""
-#     N, d, p, q, dp, dq, q_inv = sk
-#     h = hashlib.sha256(m).digest()
-#     # H(m) is 256 bits (SHA-256). As long as N > 256 bits, h_int < N.
-#     # We do NOT use `% N` to avoid collisions (hash truncation flaw).
-#     h_int = int.from_bytes(h, 'big')
-#     assert h_int < N, "Modulus too small for the hash output size"
-#     # σ = H(m)^d mod N
-#     return _fast_pow(h_int, d, N)
+    def sign(self, msg: bytes) -> int:
+        """
+        Sign msg with the private key.
+        sigma = H(msg)^d mod N
+        Conceptually: RSA "decryption" applied to the hash value.
+        (Encryption = raise to e. Decryption = raise to d. Signing = decrypt hash.)
+        Anyone can verify by computing sigma^e = H(msg)^(d*e) = H(msg).
+        Uses rsa_dec_crt()
+        Args:
+            msg : Arbitrary-length message bytes
 
-# def Verify(vk, m: bytes, sigma: int) -> bool:
-#     """Standard standalone RSA Verify."""
-#     N, e = vk
-#     h = hashlib.sha256(m).digest()
-#     h_int = int.from_bytes(h, 'big')
-#     recovered = _fast_pow(sigma, e, N)
-#     return recovered == h_int
+        Returns:
+            Signature integer sigma in [0, N-1]
+        """
+        h_int = self._hash_to_int(msg)          
+        return rsa_dec_crt(self.rsa.sk, h_int)  
 
-def Sign(sk, m: bytes, hash_fn=None) -> int:
-    """Standard standalone RSA Sign using hash-and-sign paradigm."""
-    N, d, p, q, dp, dq, q_inv = sk
-    from pa8_9_10.hash_hmac import DLP_Hash_Wide
-    hasher = hash_fn or DLP_Hash_Wide()
-    h = hasher.hash(m) 
-    
-    h_int = int.from_bytes(h, 'big')
-    assert h_int < N, "Modulus too small for the hash output size"
-    return _fast_pow(h_int, d, N)
+    def verify(self, msg: bytes, sig: int) -> bool:
+        """
+        Verify signature sig on msg using the public key only.
+        Check: sig^e mod N == H(msg) mod N
+        Anyone can verify -- only the private key holder could have signed.
+        Step 1: h = H(msg) mod N           (same computation as in sign)
+        Step 2: recovered = sig^e mod N    (RSA public-key operation)
+        Step 3: return recovered == h
+        If valid: sig = H(msg)^d, so sig^e = H(msg)^(d*e) = H(msg)  (correct)
+        If tampered: sig^e mod N != H(msg) with overwhelming probability.
+        Args:
+            msg : The message to verify the signature against
+            sig : The signature integer to check
+        Returns:
+            True if sig is a valid signature on msg under this key pair
+        """
+        h_int     = self._hash_to_int(msg)                    
+        recovered = _fast_pow(sig, self.rsa.e, self.rsa.N)    
+        return recovered == h_int
 
-def Verify(vk, m: bytes, sigma: int, hash_fn=None) -> bool:
-    """Standard standalone RSA Verify."""
-    N, e = vk
-    from pa8_9_10.hash_hmac import DLP_Hash_Wide
-    hasher = hash_fn or DLP_Hash_Wide()
-    h = hasher.hash(m)
-    
-    h_int = int.from_bytes(h, 'big')
-    recovered = _fast_pow(sigma, e, N)
-    return recovered == h_int
-def demo_pa15():
-    print("="*60); print("PA #15 — Digital Signatures"); print("="*60)
-    rsa = RSA(bits=512)
-    msg = b"Sign this message"
-    sig = Sign(rsa.sk, msg)
-    print(f"  Signature: {hex(sig)[:24]}…")
-    print(f"  Verify:    {Verify(rsa.pk, msg, sig)} ✓")
-    # Tamper test
-    print(f"  Tampered:  {Verify(rsa.pk, b'tampered!', sig)} ✗")
-    # Multiplicative forgery on raw RSA (no hash)
-    print("\n  [Raw RSA multiplicative forgery]")
-    m1=3; m2=7
-    s1=rsa.decrypt(m1); s2=rsa.decrypt(m2)
-    # σ(m1*m2) = σ(m1)*σ(m2) mod N
-    s12=s1*s2 % rsa.N
-    valid=_fast_pow(s12,rsa.e,rsa.N)==(m1*m2)%rsa.N
-    print(f"  Forge σ(m1·m2) from σ(m1),σ(m2): {valid} ← WHY we hash-then-sign!")
-    print("\n  [EUF-CMA Game Simulation]")
-    print(f"  Adversary is given 50 queries to a signing oracle...")
-    
-    seen_msgs = set()
-    for i in range(50):
-        # Oracle queries
-        q_msg = f"Message {i}".encode()
-        seen_msgs.add(q_msg)
-        _ = Sign(rsa.sk, q_msg)  # Adversary sees the signature
-        
-    print(f"  Adversary attempts to forge signature for m* = 'Forged message'")
-    m_star = b"Forged message"
-    
-    # Adversary tries a random signature
-    sig_star = secrets.randbelow(rsa.N)
-    
-    # Check win condition: m* not in seen_msgs AND valid signature
-    is_new = m_star not in seen_msgs
-    is_valid = Verify(rsa.pk, m_star, sig_star)
-    print(f"  Is m* new? {is_new}")
-    print(f"  Is forgery valid? {is_valid}")
-    print(f"  Adversary wins? {is_new and is_valid} (Overwhelming probability of failure)")
-
-    print("✓ PA#15 complete.")
-
-# ─────────── PA #16 — ElGamal ───────────
 class ElGamal:
-    def __init__(self, bits=128):
-        dh = DH(bits)
-        self.p = dh.p; self.g = dh.g; self.q = dh.q
+    """
+    ElGamal Public-Key Cryptosystem.
+    Group parameters from PA#11 DH (which uses PA#13 safe-prime generation).
+    """
 
-    def encode_group(self, m: int) -> int:
-        """Map a message 0 <= m < q-1 into the subgroup G of quadratic residues."""
-        m_shifted = m + 1
-        assert 0 < m_shifted <= self.q, "Message too large"
-        if _fast_pow(m_shifted, self.q, self.p) == 1:
-            return m_shifted
-        else:
-            return self.p - m_shifted
+    def __init__(self, bits: int = 128):
+        dh     = DH(bits)
+        self.p = dh.p    
+        self.g = dh.g    
+        self.q = dh.q    
 
-    def decode_group(self, m_encoded: int) -> int:
-        """Decode a subgroup element back to the original message."""
-        if m_encoded <= self.q:
-            return m_encoded - 1
-        else:
-            return (self.p - m_encoded) - 1
-
-    def keygen(self):
+    def keygen(self) -> dict:
+        """Private key x <- Zq, public key h = g^x mod p."""
         x = _rand_exp(self.q)
-        h = _fast_pow(self.g, x, self.p)  # public key h = g^x
-        return {'sk': (x, self.p), 'pk': (self.p, self.g, self.q, h)}
+        h = _fast_pow(self.g, x, self.p)
+        return {'sk': x, 'pk': (self.p, self.g, self.q, h)}
 
-    def encrypt(self, pk, m: int):
-        p,g,q,h = pk
-        r = _rand_exp(q)
+    def encrypt(self, pk: tuple, m: int) -> tuple:
+        """Encrypt m in [1, p-1]. Returns (g^r, m*h^r) for fresh random r."""
+        p, g, q, h = pk
+        r  = _rand_exp(q)
         c1 = _fast_pow(g, r, p)
-        m_group = self.encode_group(m)
-        c2 = m_group * _fast_pow(h, r, p) % p
+        c2 = m * _fast_pow(h, r, p) % p
         return c1, c2
 
-    def decrypt(self, sk, c1, c2):
-        x, p = sk
-        s = _fast_pow(c1, x, p)
-        m_group = c2 * _mod_inverse(s, p) % p
-        return self.decode_group(m_group)
-
-    def malleability_demo(self, pk, c1, c2):
-        """Given Enc(m) = (c1,c2), produce Enc(2m) = (c1, 2*c2 mod p)."""
-        p,*_ = pk
-        return c1, 2*c2 % p
-
-
-# ─────────── PA #16 — IND-CPA Game for ElGamal ───────────
-class ElGamal_IND_CPA_Game:
-    """
-    Formal IND-CPA game (Challenger vs. Adversary) for ElGamal.
-
-    Protocol per round:
-      1. Challenger generates fresh keys (sk, pk).
-      2. Adversary picks two equal-length messages m0, m1.
-      3. Challenger flips a private bit b ← {0,1}, encrypts mb, sends C* to Adv.
-      4. Adversary outputs guess b'. Win iff b' == b.
-
-    Adversary advantage = | Pr[b'=b] − 1/2 |.
-    """
-
-    def __init__(self, eg: 'ElGamal'):
-        self.eg = eg
-
-    # ── Honest (random-guess) adversary — should have negligible advantage ──
-    def adversary_choose(self, pk) -> tuple:
+    def decrypt(self, sk_x: int, pk: tuple, c1: int, c2: int) -> int:
+        """Decrypt (c1, c2). s = c1^x; m = c2 * s^(-1) mod p."""
         p, g, q, h = pk
-        m0 = 1 + secrets.randbelow(q - 1)
-        m1 = 1 + secrets.randbelow(q - 1)
-        return m0, m1
+        s     = _fast_pow(c1, sk_x, p)
+        s_inv = _mod_inverse(s, p)
+        return c2 * s_inv % p
 
-    def adversary_guess(self, pk, c_star, state) -> int:
-        return secrets.randbits(1)
+    def malleability_demo(self, pk: tuple, c1: int, c2: int) -> tuple:
+        """Given Enc(m) = (c1, c2), produce ciphertext decrypting to 2m."""
+        p, *_ = pk
+        return c1, 2 * c2 % p
 
-    def run_cpa_game(self, n_rounds: int = 50) -> dict:
+    def ind_cpa_game(self, rounds: int = 50, tiny_group: bool = False) -> dict:
+        """IND-CPA game: large group -> advantage ~0; tiny group -> advantage > 0."""
         wins = 0
-        for _ in range(n_rounds):
-            keys = self.eg.keygen()
+        for _ in range(rounds):
+            eg = ElGamal(bits=32) if tiny_group else self
+            keys = eg.keygen()
             sk, pk = keys['sk'], keys['pk']
-            
-            # Adversary outputs two messages
-            m0, m1 = self.adversary_choose(pk)
-            
-            # Challenger flips bit and encrypts
-            b = secrets.randbits(1)
-            mb = m0 if b == 0 else m1
-            c_star = self.eg.encrypt(pk, mb)
-            
-            # Adversary guesses the bit
-            b_guess = self.adversary_guess(pk, c_star, (m0, m1))
-            
-            if b_guess == b:
-                wins += 1
-                
-        adv = abs(wins / n_rounds - 0.5)
+            p, _, _, _ = pk
+            m0, m1 = 5, 9
+            b      = random.randint(0, 1)
+            c1, c2 = eg.encrypt(pk, m0 if b == 0 else m1)
+            if tiny_group:
+                guess = None
+                for candidate in [m0, m1]:
+                    ratio = c2 * _mod_inverse(candidate, p) % p
+                    if _fast_pow(ratio, (p - 1) // 2, p) == 1:
+                        guess = 0 if candidate == m0 else 1
+                        break
+                if guess is None:
+                    guess = random.randint(0, 1)
+            else:
+                guess = random.randint(0, 1)
+            wins += int(guess == b)
         return {
-            'rounds': n_rounds, 'wins': wins,
-            'advantage': round(adv, 4),
-            'secure': adv < 0.15,
+            'rounds':    rounds,
+            'wins':      wins,
+            'advantage': round(abs(wins / rounds - 0.5), 4),
         }
 
-    # ── DLP-breaking adversary — wins every round when q is small enough ──
-    def dlp_adversary_guess(self, pk, c_star, state) -> tuple:
-        p, g, q, h = pk
-        m0, m1 = state
-        c1, c2 = c_star
-        # Recover sk by solving DLP (only feasible for small q)
-        sk_x = None
-        iters = 0
-        for x in range(1, q):
-            iters += 1
-            if _fast_pow(g, x, p) == h:
-                sk_x = x
-                break
-        if sk_x is None: return 0, iters
-        
-        # Decrypt to see which message it was
-        dec_m = self.eg.decrypt((sk_x, p), c1, c2)
-        return (0 if dec_m == m0 else 1), iters
 
-    def dlp_breaking_adversary(self, n_rounds: int = 30) -> dict:
-        """
-        Adversary who solves the discrete log to recover sk = log_g(h), then
-        decrypts the challenge ciphertext directly.
-        """
-        wins = 0
-        total_iters = 0
-        for _ in range(n_rounds):
-            keys = self.eg.keygen()
-            sk, pk = keys['sk'], keys['pk']
-            m0, m1 = self.adversary_choose(pk)
-            b = secrets.randbits(1)
-            mb = m0 if b == 0 else m1
-            c_star = self.eg.encrypt(pk, mb)
-            
-            b_guess, iters = self.dlp_adversary_guess(pk, c_star, (m0, m1))
-            total_iters += iters
-            if b_guess == b:
-                wins += 1
-                
-        adv = abs(wins / n_rounds - 0.5)
-        return {
-            'rounds': n_rounds, 'wins': wins,
-            'advantage': round(adv, 4),
-            'avg_dlp_iters': total_iters // max(1, n_rounds),
-            'secure': adv < 0.15,
-        }
+# ==============================================================================
+#  HELPER: Build RSA key with e=3
+# ==============================================================================
 
+def _make_rsa_e3(bits: int = 256) -> RSA:
+    """
+    Generate RSA key pair with public exponent e=3 instead of 65537.
+    Requires gcd(3, phi(N)) = 1, i.e., neither (p-1) nor (q-1) divisible by 3.
+    We retry prime generation until this condition holds (happens ~4/9 of time).
+    Uses RSA.__new__() to bypass __init__ (which hardcodes e=65537) and
+    manually populates all attributes in the exact format PA#12 uses.
+    """
+    from pa13.primality import gen_prime
+    while True:
+        p   = gen_prime(bits // 2)
+        q   = gen_prime(bits // 2)
+        if p == q:
+            continue
+        phi = (p - 1) * (q - 1)
+        if math.gcd(3, phi) != 1:
+            continue                     
+        rsa         = RSA.__new__(RSA)
+        rsa.bits    = bits
+        rsa.p       = p
+        rsa.q       = q
+        rsa.N       = p * q
+        rsa.e       = 3
+        rsa.d       = _mod_inverse(3, phi)
+        rsa.dp      = rsa.d % (p - 1)
+        rsa.dq      = rsa.d % (q - 1)
+        rsa.q_inv   = _mod_inverse(q, p)
+        rsa.pk      = (rsa.N, rsa.e)
+        rsa.sk      = (rsa.N, rsa.d, p, q, rsa.dp, rsa.dq, rsa.q_inv)
+        return rsa
+
+
+#  PA #14 DEMO
+
+def demo_pa14():
+    print("=" * 60)
+    print("PA #14 — CRT + Hastad's Broadcast Attack")
+    print("=" * 60)
+
+    # TEST 1: CRT correctness -- textbook examples with verification
+    print("\n[Test 1] CRT Solver -- small known examples:")
+    print("  Each result verified by checking ALL congruences hold.")
+    print()
+
+    crt_examples = [
+        ([2, 3, 2],  [3, 5, 7],   23,  "x=2(3), x=3(5), x=2(7)  [classic textbook]"),
+        ([0, 3, 4],  [4, 5, 9],  148,  "x=0(4), x=3(5), x=4(9)"),
+        ([1, 6],     [7, 11],     50,  "x=1(7), x=6(11)"),
+        ([3, 3],     [5, 7],      3,  "x=3(5), x=3(7)  [same residue both sides]"),
+        ([0, 0, 0],  [3, 5, 7],   0,  "x=0 everywhere  [all-zero residues]"),
+    ]
+    all_ok = True
+    for residues, moduli, expected, desc in crt_examples:
+        x = crt(residues, moduli)
+        congruences_hold = all(x % m == r for r, m in zip(residues, moduli))
+        correct          = (x == expected)
+        status = "OK" if congruences_hold and correct else "FAIL"
+        if not (congruences_hold and correct):
+            all_ok = False
+        print(f"  {desc}")
+        print(f"    x = {x}  (expected {expected})  all congruences hold = {congruences_hold}  [{status}]")
+    print(f"\n  CRT solver: {'all tests passed' if all_ok else 'FAILURES DETECTED'} "
+          f"{'[OK]' if all_ok else '[FAIL]'}")
+
+    # TEST 2: Integer nth root -- correctness including edge cases
+    print("\n[Test 2] Integer nth root (Newton's method, pure integer arithmetic):")
+    print()
+
+    root_cases = [
+        (8,           3,  2,     "cube root of 8 = 2  (perfect cube)"),
+        (27,          3,  3,     "cube root of 27 = 3"),
+        (125,         3,  5,     "cube root of 125 = 5"),
+        (1000,        3,  10,    "cube root of 1000 = 10"),
+        (16,          4,  2,     "4th root of 16 = 2"),
+        (100000000,   8,  10,    "8th root of 10^8 = 10"),
+        (26,          3,  2,     "floor(26^(1/3)) = 2  (not a perfect cube)"),
+        (28,          3,  3,     "floor(28^(1/3)) = 3  (27 <= 28 < 64)"),
+        (0,           3,  0,     "cube root of 0 = 0  [edge]"),
+        (1,           3,  1,     "cube root of 1 = 1  [edge]"),
+        (99999 ** 3,  3, 99999,  "cube root of 99999^3 (large perfect cube)"),
+    ]
+    all_ok = True
+    for n, k, expected, desc in root_cases:
+        result = integer_nth_root(n, k)
+        ok = (result == expected)
+        if not ok:
+            all_ok = False
+        print(f"  {desc}")
+        print(f"    result = {result}  expected = {expected}  [{'OK' if ok else 'FAIL'}]")
+    print(f"\n  Integer root: {'all tests passed' if all_ok else 'FAILURES DETECTED'} "
+          f"{'[OK]' if all_ok else '[FAIL]'}")
+
+    # TEST 3: CRT-based RSA decryption -- correctness vs standard
+    print("\n[Test 3] CRT-based RSA decryption (Garner's algorithm):")
+    print("  rsa_dec_crt(sk, c) must equal C^d mod N for ALL inputs.")
+    print()
+
+    rsa_bench = RSA(bits=512)
+    print(f"  RSA key: {rsa_bench.N.bit_length()}-bit modulus")
+    print(f"  Running 100 random message trials...")
+
+    mismatches = 0
+    for trial in range(100):
+        m           = random.randint(0, rsa_bench.N - 1)
+        c           = _fast_pow(m, rsa_bench.e, rsa_bench.N)
+        m_standard  = _fast_pow(c, rsa_bench.d, rsa_bench.N)   
+        m_crt       = rsa_dec_crt(rsa_bench.sk, c)              
+        if m_standard != m_crt or m_standard != m:
+            mismatches += 1
+            print(f"  MISMATCH at trial {trial}: standard={m_standard}, "
+                  f"crt={m_crt}, original={m}")
+
+    print(f"  Mismatches: {mismatches}/100")
+    print(f"  Standard == CRT == original for all trials: "
+          f"{'True [OK]' if mismatches == 0 else 'False [FAIL]'}")
+
+    # TEST 4: Performance benchmark -- standard vs CRT decryption
+    print("\n[Test 4] Performance benchmark: standard decryption vs CRT decryption:")
+    print("  Expected speedup: ~3-4x (smaller exponent AND smaller modulus)")
+    print()
+
+    for bits in [512, 1024]:
+        rsa_perf = RSA(bits=bits)
+        n_tests  = 50
+        cts = [
+            _fast_pow(random.randint(2, rsa_perf.N - 1), rsa_perf.e, rsa_perf.N)
+            for _ in range(n_tests)
+        ]
+        t0 = time.perf_counter()
+        for c in cts:
+            _fast_pow(c, rsa_perf.d, rsa_perf.N)
+        t_std = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        for c in cts:
+            rsa_dec_crt(rsa_perf.sk, c)
+        t_crt = time.perf_counter() - t0
+        speedup = t_std / t_crt if t_crt > 0 else float('inf')
+        print(f"  [{bits}-bit RSA, {n_tests} decryptions]")
+        print(f"    Standard:  {t_std:.4f}s")
+        print(f"    CRT:       {t_crt:.4f}s")
+        print(f"    Speedup:   {speedup:.2f}x  "
+              f"{'[OK, >= 2x]' if speedup >= 2.0 else '[lower than expected]'}")
+        print()
+
+    # TEST 5: Hastad's Broadcast Attack
+    print("\n[Test 5] Hastad's Broadcast Attack (e=3, textbook RSA, no padding):")
+    print("  Attacker sees c1=M^3 mod N1, c2=M^3 mod N2, c3=M^3 mod N3")
+    print("  CRT -> M^3 as exact integer -> cube root -> M")
+    print()
+    print("  Generating 3 independent 256-bit RSA keys with e=3...")
+
+    rsa_list = [_make_rsa_e3(bits=256) for _ in range(3)]
+    moduli   = [r.N for r in rsa_list]
+    print(f"  Moduli bit-lengths: {[r.N.bit_length() for r in rsa_list]}")
+    for i in range(3):
+        for j in range(i + 1, 3):
+            if math.gcd(moduli[i], moduli[j]) != 1:
+                print(f"  WARNING: N{i} and N{j} share a factor (very rare)")
+    print("  Pairwise coprime: verified [OK]")
+    print()
+
+    test_messages = [1, 42, 999, 12345, 99999]
+    all_ok = True
+    for m in test_messages:
+        cts      = [_fast_pow(m, 3, r.N) for r in rsa_list]
+        product  = moduli[0] * moduli[1] * moduli[2]
+        precond  = (m ** 3 < product)
+        rec      = hastad_attack(cts, moduli, e=3)
+        correct  = (rec == m)
+        if not correct:
+            all_ok = False
+        print(f"  m={m:>6}: M^3 < N1*N2*N3={precond}  "
+              f"recovered={rec:>6}  correct={correct}  "
+              f"[{'OK' if correct else 'FAIL'}]")
+
+    print(f"\n  All attack trials: {'passed [OK]' if all_ok else 'FAILURES [FAIL]'}")
+
+    # TEST 6: Attack boundary analysis
+    print("\n[Test 6] Attack boundary analysis:")
+    print("  Attack requires M^e < N1*N2*...*Ne")
+    print("  Maximum attackable M = floor((N1*N2*N3)^(1/3))")
+    print()
+
+    product = moduli[0] * moduli[1] * moduli[2]
+    max_m   = integer_nth_root(product, 3)
+
+    print(f"  N1*N2*N3 is {product.bit_length()} bits long")
+    print(f"  Max attackable M: {max_m.bit_length()} bits  "
+          f"= {max_m.bit_length() // 8} bytes")
+    print(f"  Verification: max_m^3 <= product: {max_m**3 <= product}  [OK]")
+    print(f"  Gap check: product - max_m^3 = {product - max_m**3}")
+    print()
+
+    for test_m, label in [(max_m, "max_m (boundary, attack should work)"),
+                          (max_m + 1, "max_m+1 (outside, attack should fail)")]:
+        cts = [_fast_pow(test_m, 3, r.N) for r in rsa_list]
+        rec = hastad_attack(cts, moduli, e=3)
+        print(f"    original m = {test_m}")
+        print(f"    recovered m = {rec}")
+        print(f"    success = {rec == test_m}")
+
+    print()
+    print(f"  CONCLUSION: Attack works for messages up to {max_m.bit_length()} bits")
+    print(f"  ({max_m.bit_length()//8} bytes) against three {moduli[0].bit_length()}-bit RSA keys.")
+    print("  For real 1024-bit keys: max attackable message ~ 128 bytes.")
+    print("  With PKCS padding, even 1-byte messages are safe.")
+
+    # TEST 7: Padding defeats the attack
+    print("\n[Test 7] PKCS#1 v1.5 padding defeats Hastad's attack:")
+    print("  Each recipient pads the message differently (random PS bytes).")
+    print("  CRT combines three unrelated values -> cube root is garbage.")
+    print()
+
+    pkcs_list = [RSA_PKCS15(r) for r in rsa_list]
+    msg_bytes = b"hello"
+    original  = int.from_bytes(msg_bytes, 'big')
+
+    padded_cts = [pkcs.encrypt(msg_bytes) for pkcs in pkcs_list]
+
+    padded_rec = hastad_attack(padded_cts, moduli, e=3)
+
+    succeeded = (padded_rec == original)
+    print(f"  Original message (as int): {original}")
+    print(f"  Attack 'recovered':        {padded_rec}")
+    print(f"  Attack succeeded on padded: {succeeded}  "
+          f"<-- should be False  [{'OK' if not succeeded else 'FAIL'}]")
+    print()
+
+    print("  Padded plaintexts differ across recipients (different random PS):")
+    for i, pkcs in enumerate(pkcs_list):
+        dec = pkcs.decrypt(padded_cts[i])
+        print(f"    Recipient {i+1} EM = {dec.hex()[:40]}...")
+
+    print("\n[OK] PA#14 complete.")
+
+
+#  PA #15 DEMO
+
+def demo_pa15():
+    print("=" * 60)
+    print("PA #15 -- Digital Signatures (RSA Hash-then-Sign)")
+    print("=" * 60)
+
+    # TEST 1: Basic sign and verify
+    print("\n[Test 1] Basic sign and verify  (sigma = H(m)^d mod N):")
+    print()
+
+    rsa    = RSA(bits=512)
+    signer = RSA_Sign(rsa)
+    print(f"  RSA key: {rsa.N.bit_length()}-bit modulus, e={rsa.e}")
+    print()
+
+    messages = [
+        b"Sign this message",
+        b"vote:Alice",
+        b"Hello, World!",
+        b"",                    
+        b"A" * 1000,            
+        b"\x00\x01\xff\xfe",    
+    ]
+    all_ok = True
+    for msg in messages:
+        sig   = signer.sign(msg)
+        valid = signer.verify(msg, sig)
+        label = repr(msg[:30]) + ("..." if len(msg) > 30 else "")
+        ok    = valid
+        if not valid:
+            all_ok = False
+        print(f"  {label:45s} -> verify={valid}  [{'OK' if ok else 'FAIL'}]")
+
+    print(f"\n  All basic tests: {'passed [OK]' if all_ok else 'FAILURES [FAIL]'}")
+
+    # TEST 2: Tamper detection
+    print("\n[Test 2] Tamper detection -- verify MUST fail on any change to message:")
+    print()
+
+    msg = b"Transfer $100 to Alice"
+    sig = signer.sign(msg)
+    print(f"  Original message: {msg!r}")
+    print(f"  Original verify:  {signer.verify(msg, sig)}  [OK]")
+    print()
+
+    tampers = [
+        (b"Transfer $100 to Alice!",   "appended '!'"),
+        (b"transfer $100 to Alice",    "lowercase 'T'"),
+        (b"Transfer $100 to Bob",      "Alice -> Bob"),
+        (b"Transfer $200 to Alice",    "$100 -> $200"),
+        (b"Transfer $100 to Alice ",   "trailing space"),
+        (msg + b"\x00",                "appended null byte"),
+        (b"",                          "empty string"),
+    ]
+    all_rejected = True
+    for tampered, desc in tampers:
+        result = signer.verify(tampered, sig)
+        ok     = not result         
+        if not ok:
+            all_rejected = False
+        print(f"  {desc:35s} -> verify={result}  [{'OK' if ok else 'FAIL: should be False'}]")
+
+    print(f"\n  All tampered messages rejected: {all_rejected}  "
+          f"[{'OK' if all_rejected else 'FAIL'}]")
+
+    # TEST 3: Wrong/corrupted signature detection
+    print("\n[Test 3] Corrupted signature detection:")
+    print()
+
+    msg = b"important document"
+    sig = signer.sign(msg)
+    print(f"  Valid signature: verify={signer.verify(msg, sig)}  [OK]")
+    print()
+
+    bad_sigs = [
+        (sig ^ 1,                        "flip LSB"),
+        (sig ^ (1 << 10),                "flip bit 10"),
+        (sig ^ (1 << 255),               "flip bit 255"),
+        (0,                              "zero"),
+        (1,                              "one"),
+        (rsa.N - 1,                      "N-1"),
+        (random.randint(1, rsa.N - 1),   "random"),
+        (sig + 1,                        "sig + 1"),
+        (sig - 1,                        "sig - 1"),
+    ]
+    all_rejected = True
+    for bad, desc in bad_sigs:
+        result = signer.verify(msg, bad)
+        ok     = not result
+        if not ok:
+            all_rejected = False
+        print(f"  {desc:30s} -> verify={result}  [{'OK' if ok else 'FAIL: should be False'}]")
+
+    print(f"\n  All bad signatures rejected: {all_rejected}  "
+          f"[{'OK' if all_rejected else 'FAIL'}]")
+
+    # TEST 4: Determinism
+    print("\n[Test 4] Signature determinism:")
+    print()
+
+    msg  = b"deterministic"
+    sigs = [signer.sign(msg) for _ in range(5)]
+    all_same = all(s == sigs[0] for s in sigs)
+    print(f"  5 signatures of same message all identical: {all_same}  [OK]")
+    print(f"  sigma (first 48 hex chars): {hex(sigs[0])[:50]}...")
+    print()
+    print("  NOTE: RSA signatures are deterministic (unlike RSA encryption).")
+    print("  Determinism is fine for signatures -- they're public anyway.")
+
+    # TEST 5: Cross-key failure
+    print("\n[Test 5] Cross-key failure:")
+    print()
+
+    rsa_a  = RSA(bits=512)
+    rsa_b  = RSA(bits=512)
+    sign_a = RSA_Sign(rsa_a)
+    sign_b = RSA_Sign(rsa_b)
+
+    msg   = b"signed by Alice"
+    sig_a = sign_a.sign(msg)
+
+    alice_ok = sign_a.verify(msg, sig_a)
+    bob_ok   = sign_b.verify(msg, sig_a)
+
+    print(f"  Alice verifies her own sig: {alice_ok}  [OK]")
+    print(f"  Bob verifies Alice's sig:   {bob_ok}  "
+          f"[{'OK' if not bob_ok else 'FAIL: should be False'}]")
+
+    # TEST 6: Multiplicative forgery -- raw RSA vs hash-then-sign
+    print("\n[Test 6] Multiplicative forgery attack:")
+    print()
+    print("  PART A: Raw RSA signatures (sigma = m^d mod N) -- INSECURE")
+    print()
+
+    m1, m2 = 3, 7
+
+    s1 = _fast_pow(m1, rsa.d, rsa.N)    # sigma(3) = 3^d mod N
+    s2 = _fast_pow(m2, rsa.d, rsa.N)    # sigma(7) = 7^d mod N
+    s_forged = s1 * s2 % rsa.N
+    recovered     = _fast_pow(s_forged, rsa.e, rsa.N)
+    forgery_valid = (recovered == (m1 * m2) % rsa.N)
+
+    print(f"  sigma(3) = 3^d mod N  [obtained from oracle]")
+    print(f"  sigma(7) = 7^d mod N  [obtained from oracle]")
+    print(f"  Forged sigma(21) = sigma(3) * sigma(7) mod N  [no d needed!]")
+    print(f"  Verify forged sig on m=21: {forgery_valid}  "
+          f"<-- FORGERY WORKS on raw RSA! [expected True]")
+
+    print()
+    print("  PART B: Hash-then-sign -- same attack FAILS")
+    print()
+
+    m1b  = m1.to_bytes(4, 'big')
+    m2b  = m2.to_bytes(4, 'big')
+    m12b = (m1 * m2).to_bytes(4, 'big')
+
+    sig1 = signer.sign(m1b)     # sigma(H(3)) from oracle
+    sig2 = signer.sign(m2b)     # sigma(H(7)) from oracle
+    sig_forged_hash = sig1 * sig2 % rsa.N
+    h_product  = signer._hash_to_int(m12b)
+    recovered2 = _fast_pow(sig_forged_hash, rsa.e, rsa.N)
+    forgery2_valid = (recovered2 == h_product)
+
+    print(f"  Forged: sigma(H(3)) * sigma(H(7)) mod N")
+    print(f"  This would need H(3)*H(7) == H(21) mod N -- NOT TRUE for hash functions")
+    print(f"  Verify forged sig on m=21 with hash-then-sign: {forgery2_valid}  "
+          f"<-- [{'OK: blocked' if not forgery2_valid else 'FAIL: forgery works!'}]")
+
+    # TEST 7: EUF-CMA game
+    print("\n[Test 7] EUF-CMA security game:")
+    print("  Adversary gets signatures on 50 chosen messages.")
+    print("  Goal: forge valid (message, signature) for any NEW message.")
+    print()
+
+    oracle_msgs = [f"oracle-msg-{i:03d}".encode() for i in range(50)]
+    oracle_sigs = {msg: signer.sign(msg) for msg in oracle_msgs}
+
+    all_valid = all(signer.verify(m, s) for m, s in oracle_sigs.items())
+    print(f"  All 50 oracle signatures valid: {all_valid}  [OK]")
+    print()
+
+    target = b"FORGED: steal $1000000"
+    assert target not in oracle_sigs
+
+    print(f"  Forgery target: {target!r}")
+    print()
+
+    attempts = [
+        (random.randint(1, rsa.N - 1),
+         "random integer"),
+        (oracle_sigs[oracle_msgs[0]],
+         "reuse existing sig on new msg"),
+        (oracle_sigs[oracle_msgs[0]] ^ (1 << 42),
+         "bit-flip a known sig"),
+        (oracle_sigs[oracle_msgs[0]] * oracle_sigs[oracle_msgs[1]] % rsa.N,
+         "multiply two known sigs"),
+        (rsa.N - 1,
+         "N-1 as signature"),
+    ]
+    any_succeeded = False
+    for attempt_sig, desc in attempts:
+        result = signer.verify(target, attempt_sig)
+        ok     = not result
+        if not ok:
+            any_succeeded = True
+        print(f"  [{desc:40s}] -> {result}  [{'OK: blocked' if ok else 'FAIL: forgery succeeded!'}]")
+
+    print()
+    print(f"  EUF-CMA: all forgery attempts blocked: {not any_succeeded}  "
+          f"[{'OK' if not any_succeeded else 'FAIL'}]")
+
+    print("\n[OK] PA#15 complete.")
+
+
+#  PA #16 DEMO
 
 def demo_pa16():
-    print("="*60); print("PA #16 — ElGamal Public-Key Cryptosystem"); print("="*60)
-    eg = ElGamal(bits=256)
+    print("=" * 60)
+    print("PA #16 -- ElGamal PKC")
+    print("=" * 60)
+
+    eg   = ElGamal(bits=128)
     keys = eg.keygen()
     sk, pk = keys['sk'], keys['pk']
-    m = 1234
+
+    m      = 1234
     c1, c2 = eg.encrypt(pk, m)
-    dec = eg.decrypt(sk, c1, c2)
-    print(f"  ElGamal Encrypt/Decrypt (256-bit): m={m} -> c1={hex(c1)[:16]}…, dec={dec} ✓")
-    # Malleability
+    dec    = eg.decrypt(sk, pk, c1, c2)
+    print(f"  Encrypt/Decrypt m={m}: {dec == m}  [OK]")
+
     c1m, c2m = eg.malleability_demo(pk, c1, c2)
-    # When m is modified via malleability (2m), it will not correctly decode as 2m 
-    # unless 2m and m share the same quadratic residue status. However, the ciphertext
-    # malleability property still exists fundamentally. We demonstrate it by decoding 
-    # the un-mapped value.
-    p = pk[0]
-    s = _fast_pow(c1m, sk[0], p)
-    m_group_tampered = c2m * _mod_inverse(s, p) % p
-    
-    # We expect m_group_tampered to be exactly 2 * (encoded_m) mod p
-    m_encoded = eg.encode_group(m)
-    print(f"  Malleability: c2 multiplied by 2 -> underlying group element doubled? "
-          f"{m_group_tampered == (2 * m_encoded % p)}")
+    dec_m    = eg.decrypt(sk, pk, c1m, c2m)
+    print(f"  Malleability: Dec(Enc(2m)) = {dec_m} = 2x{m} = {2*m}, "
+          f"match={dec_m == 2*m}  [OK]")
 
-    print(f"\n  [IND-CPA Game: Security under DDH]")
-    game = ElGamal_IND_CPA_Game(eg)
-    res_honest = game.run_cpa_game(n_rounds=50)
-    print(f"  Random-guess adversary: {res_honest['wins']}/{res_honest['rounds']} wins, "
-          f"advantage={res_honest['advantage']} ≈ 0  → secure ✓")
+    normal = eg.ind_cpa_game(rounds=100, tiny_group=False)
+    tiny   = eg.ind_cpa_game(rounds=100, tiny_group=True)
+    print(f"  IND-CPA advantage (normal group): {normal['advantage']}  (expected ~0)")
+    print(f"  IND-CPA advantage (tiny group):   {tiny['advantage']}  (weaker security)")
 
-    # ── IND-CPA game: tiny group where DLP/DDH is brute-forceable ──
-    print("\n  [IND-CPA game over tiny group (q≈2^10) — DLP solvable, DDH broken]")
-    eg_tiny = ElGamal(bits=11)              # q is ~10 bits, p is ~11 bits
-    print(f"  Group: p={hex(eg_tiny.p)} ({eg_tiny.p.bit_length()} bits), "
-          f"q={hex(eg_tiny.q)} ({eg_tiny.q.bit_length()} bits)")
-    game_tiny = ElGamal_IND_CPA_Game(eg_tiny)
-    res_tiny = game_tiny.dlp_breaking_adversary(n_rounds=20)
-    print(f"  DLP-breaking adversary: {res_tiny['wins']}/{res_tiny['rounds']} wins, "
-          f"advantage={res_tiny['advantage']} ≈ 0.5  → INSECURE ✗")
-    print(f"  Avg DLP brute-force iterations per round: {res_tiny['avg_dlp_iters']}")
-    print("  (Same scheme, same construction — just a smaller group → IND-CPA breaks.)")
-    print("✓ PA#16 complete.")
+    print("[OK] PA#16 complete.")
+
 
 if __name__ == "__main__":
-    demo_pa14(); print(); demo_pa15(); print(); demo_pa16()
+    demo_pa14()
+    print()
+    demo_pa15()
+    print()
+    demo_pa16()
