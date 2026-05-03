@@ -6,11 +6,40 @@ PA #20 — All 2-Party Secure Computation (Millionaire's, Equality, Addition)
 """
 import os, sys, secrets, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pa14_15_16.crt_sig_elgamal import ElGamal, Sign, Verify
+from pa14_15_16.crt_sig_elgamal import ElGamal
 from pa12.rsa import RSA, _mod_inverse, _fast_pow
 from pa11.dh import _rand_exp
 
+from pa14_15_16.crt_sig_elgamal import ElGamal, rsa_dec_crt
+from pa12.rsa import RSA, _mod_inverse, _fast_pow
+from pa11.dh import _rand_exp
+from pa8_9_10.hash_hmac import DLP_Hash_Wide  # Needed to hash the signature payload
+
 # ─────────── PA #17 — CCA-PKC ───────────
+
+
+def Sign(signer_sk: tuple, msg: bytes) -> int:
+    """Standalone signature wrapper to support PA#17's CCA_PKC."""
+    N = signer_sk[0]
+    # Hash the message and reduce it into the RSA modulus domain
+    h_bytes = DLP_Hash_Wide().hash(msg)
+    h_int = int.from_bytes(h_bytes, 'big') % N
+    
+    # Sign = "decrypt" the hash using the private key (via fast CRT)
+    return rsa_dec_crt(signer_sk, h_int)
+
+def Verify(verifier_pk: tuple, msg: bytes, sig: int) -> bool:
+    """Standalone verification wrapper to support PA#17's CCA_PKC."""
+    N, e = verifier_pk
+    # Re-hash the message to check against the signature
+    h_bytes = DLP_Hash_Wide().hash(msg)
+    h_int = int.from_bytes(h_bytes, 'big') % N
+    
+    # Recover the hash from the signature using the public key
+    recovered = _fast_pow(sig, e, N)
+    return recovered == h_int
+
+
 class CCA_PKC:
     """Encrypt-then-Sign (Signcrypt): CCA2-secure PKC."""
     
