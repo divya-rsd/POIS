@@ -1,3 +1,4 @@
+
 import os, random, math, time
 
 
@@ -17,27 +18,29 @@ def _mod_exp(base: int, exp: int, mod: int) -> int:
     For a 512-bit exp, that's ~512 multiplications instead of 2^512.
     """
     result = 1
-    base = base % mod          
+    base = base % mod
     while exp > 0:
-        if exp & 1:            
-            result = result * base % mod  
-        exp >>= 1              
-        base = base * base % mod          
+        if exp & 1:
+            result = result * base % mod
+        exp >>= 1
+        base = base * base % mod
     return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MILLER-RABIN PRIMALITY TEST
 # ─────────────────────────────────────────────────────────────────────────────
-def miller_rabin(n: int, k: int = 40) -> bool:
+def miller_rabin(n: int, k: int = 40, trace: list = None) -> bool:
     """
     Probabilistic primality test.
     Returns:
       True  — n is PROBABLY prime (error ≤ 4^{-k})
       False — n is DEFINITELY composite (100% certain)
     Parameters:
-      n : integer to test
-      k : number of random witness rounds (40 by default → negligible error)
+      n     : integer to test
+      k     : number of random witness rounds (40 by default → negligible error)
+      trace : optional list; if provided, execution steps are appended to it
+              so the web UI can display round-by-round witness tracing.
     STEP-BY-STEP ALGORITHM:
     1. Handle trivial cases: n<2 composite, n=2/3 prime, even n composite.
     2. Write n-1 = 2^s * d  (d is odd).
@@ -50,29 +53,50 @@ def miller_rabin(n: int, k: int = 40) -> bool:
        e. If we exit the loop without seeing n-1: n is COMPOSITE. Return False.
     4. If all k witnesses are fooled: return True (probably prime).
     """
-
     if n < 2:
-        return False        
+        return False
     if n == 2 or n == 3:
-        return True         
+        return True
     if n % 2 == 0:
-        return False        
+        return False
+
+    # Write n-1 = 2^s * d
     s, d = 0, n - 1
     while d % 2 == 0:
-        s += 1      
-        d //= 2     
-    for _ in range(k):
+        s += 1
+        d //= 2
 
+    if trace is not None:
+        trace.append({"event": "factor", "r": s, "d": d})
+
+    for round_num in range(k):
         a = random.randrange(2, n - 1)
         x = _mod_exp(a, d, n)
+
+        if trace is not None:
+            trace.append({"event": "round", "round": round_num + 1, "a": a, "x": x})
+
         if x == 1 or x == n - 1:
             continue
+
+        composite = True
         for _ in range(s - 1):
             x = x * x % n
             if x == n - 1:
-                break   
-        else:
+                composite = False
+                break
+
+        if composite:
+            if trace is not None:
+                trace.append({
+                    "event": "composite",
+                    "reason": f"witness a={a} proves composite"
+                })
             return False
+
+    if trace is not None:
+        trace.append({"event": "prime"})
+
     return True
 
 
@@ -125,9 +149,9 @@ def gen_safe_prime(bits: int) -> tuple:
     Returns: (p, q)
     """
     while True:
-        q = gen_prime(bits - 1)   
-        p = 2 * q + 1              
-        if miller_rabin(p, 40):   
+        q = gen_prime(bits - 1)
+        p = 2 * q + 1
+        if miller_rabin(p, 40):
             return p, q
 
 
@@ -144,7 +168,7 @@ def fermat_test(n: int, a: int) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DEMO 
+# DEMO
 # ─────────────────────────────────────────────────────────────────────────────
 def demo():
     print("=" * 60)
@@ -189,29 +213,21 @@ def demo():
         print(f"  {bits:4}-bit prime in {elapsed:.3f}s: {p.bit_length()}-bit, "
               f"re-test(100 rounds)={extra_check} ✓")
 
-    # ── Test 4: Verify edge cases ────────────────────────────────────────────
-    print("\n[Test 4] Edge cases:")
+    # ── Test 4: Trace feature ────────────────────────────────────────────────
+    print("\n[Test 4] Trace feature (for web UI):")
+    trace_561 = []
+    result_561 = miller_rabin(561, k=5, trace=trace_561)
+    print(f"  miller_rabin(561, k=5, trace=[]) → {result_561}")
+    print(f"  Trace entries: {len(trace_561)}")
+    for entry in trace_561[:5]:
+        print(f"    {entry}")
+
+    # ── Test 5: Verify edge cases ────────────────────────────────────────────
+    print("\n[Test 5] Edge cases:")
     print(f"  is_prime(0)  = {is_prime(0)}  (expected False)")
     print(f"  is_prime(1)  = {is_prime(1)}  (expected False)")
     print(f"  is_prime(2)  = {is_prime(2)}   (expected True)")
     print(f"  is_prime(-5) = {is_prime(-5)}  (expected False)")
-
-    # ── Test 5: Performance benchmark ───────────────────────────────────────
-    print("\n[Test 5] Generation performance:")
-    for bits in [512, 1024, 2048]:
-        tries = []
-        for _ in range(20):       
-            count = 0
-            while True:
-                count += 1
-                n = int.from_bytes(os.urandom(bits // 8), 'big')
-                n |= (1 << (bits - 1)) | 1
-                if miller_rabin(n, 40):
-                    tries.append(count)
-                    break
-        avg = sum(tries) / len(tries)
-        theoretical = (bits * 0.693) / 2
-        print(f"  {bits}-bit: avg {avg:.1f} candidates (theory: ~{theoretical:.1f})")
 
     print("\n✓ PA#13 complete.")
 
