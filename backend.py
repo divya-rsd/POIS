@@ -603,13 +603,32 @@ async def api_pa14_hastad(req: Request):
     try:
         # Try to decode what we got
         recovered_str = recovered_int.to_bytes((recovered_int.bit_length() + 7) // 8, 'big').decode('utf-8')
+        success = (recovered_str == m_str)
     except:
         recovered_str = "GARBAGE (Decryption Failed)"
+        success = False
 
     return {
-        "m": m_str, 
-        "recovered": recovered_str, 
-        "match": recovered_str == m_str,
+        # "m": m_str, 
+        # "recovered": recovered_str, 
+        # "match": recovered_str == m_str,
+        # "x_hex": _to_hex(x),
+        # "moduli": [_to_hex(N) for N in mods],
+        # "ciphertexts": [_to_hex(c) for c in cts],
+        "m": m_str,
+        # Keys read directly by pa14_demo.js:
+        "N1": _to_hex(mods[0]),
+        "N2": _to_hex(mods[1]),
+        "N3": _to_hex(mods[2]),
+        "c1": _to_hex(cts[0]),
+        "c2": _to_hex(cts[1]),
+        "c3": _to_hex(cts[2]),
+        "x":  _to_hex(x),
+        "success": success,
+        "m_recovered": recovered_str,
+        # Legacy keys kept for other callers:
+        "recovered": recovered_str,
+        "match": success,
         "x_hex": _to_hex(x),
         "moduli": [_to_hex(N) for N in mods],
         "ciphertexts": [_to_hex(c) for c in cts],
