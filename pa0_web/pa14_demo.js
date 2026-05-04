@@ -30,22 +30,22 @@ btnBc.addEventListener('click', async () => {
     const usePad = pkcsChk.checked;
     const res = await Backend.pa14Hastad(m, usePad);
     
-    n1Box.textContent = res.N1; c1Box.textContent = res.c1;
-    n2Box.textContent = res.N2; c2Box.textContent = res.c2;
-    n3Box.textContent = res.N3; c3Box.textContent = res.c3;
+    n1Box.textContent = res.moduli[0]; c1Box.textContent = res.ciphertexts[0];
+    n2Box.textContent = res.moduli[1]; c2Box.textContent = res.ciphertexts[1];
+    n3Box.textContent = res.moduli[2]; c3Box.textContent = res.ciphertexts[2];
     
     // Simulate some "computation time" for the visualizer
     setTimeout(() => {
-      xBox.textContent = res.x;
+      xBox.textContent = res.x_hex;
       
       setTimeout(() => {
         statusBox.style.display = 'block';
-        if(res.success) {
-          mBox.textContent = res.m_recovered;
+        if(res.match) {
+          mBox.textContent = res.recovered;
           statusBox.className = 'status err';
           statusBox.textContent = 'ATTACK SUCCESS: Eve recovered the message using the integer cube root of x.';
         } else {
-          mBox.textContent = "Cube root failed to produce a valid string.";
+          mBox.textContent = res.recovered;
           statusBox.className = 'status ok';
           statusBox.textContent = 'ATTACK FAILED: PKCS#1 v1.5 padding randomized the messages, so c_i are NOT encryptions of the same integer. The cube root of x is meaningless.';
         }

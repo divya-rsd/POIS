@@ -27,51 +27,42 @@ function logSys(msg) { chatLog.innerHTML += `<div class="log-entry log-sys">${ms
 function logAlice(msg) { chatLog.innerHTML += `<div class="log-entry log-alice"><b>Alice:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
 function logBob(msg) { chatLog.innerHTML += `<div class="log-entry log-bob"><b>Bob:</b> ${msg}</div>`; chatLog.scrollTop = chatLog.scrollHeight; }
 
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 btnEval.addEventListener('click', async () => {
   btnEval.disabled = true;
   chatLog.innerHTML = '';
   statusDiv.style.display = 'none';
-  
-  logSys(`Starting Secure AND evaluation...`);
-  
+
+  logSys(`Starting Secure AND. Alice's bit a=${aliceBit}, Bob's bit b=${bobBit} stay private.`);
+
   try {
-    const res = await Backend.pa19And(aliceBit, bobBit);
-    
-    // Simulate steps
-    logAlice(`I have my bit x. I'm generating a random share s_a = ${res.alice_share}.`);
-    logAlice(`My secret is x = ${aliceBit}. I prepare a truth table for OT:`);
-    logAlice(`T[0][0] = (0 AND 0) ⊕ ${res.alice_share} = ${res.T[0][0]}`);
-    logAlice(`T[0][1] = (0 AND 1) ⊕ ${res.alice_share} = ${res.T[0][1]}`);
-    logAlice(`T[1][0] = (1 AND 0) ⊕ ${res.alice_share} = ${res.T[1][0]}`);
-    logAlice(`T[1][1] = (1 AND 1) ⊕ ${res.alice_share} = ${res.T[1][1]}`);
-    
-    setTimeout(() => {
-      logBob(`I have my bit y = ${bobBit}. I act as the receiver in a 1-out-of-4 Oblivious Transfer.`);
-      logBob(`I request the element at (x=${aliceBit}, y=${bobBit})... wait, I don't know x! I request row x from Alice using OT.`);
-      
-      setTimeout(() => {
-        logSys(`Oblivious Transfer executes...`);
-        logBob(`I received my share s_b = ${res.bob_share} from the OT.`);
-        
-        setTimeout(() => {
-          logSys(`Both parties now hold random shares of the result.`);
-          logAlice(`My final share: ${res.alice_share}`);
-          logBob(`My final share: ${res.bob_share}`);
-          
-          const result = res.alice_share ^ res.bob_share;
-          logSys(`Reconstructing output: s_a ⊕ s_b = ${res.alice_share} ⊕ ${res.bob_share} = ${result}`);
-          
-          statusDiv.style.display = 'block';
-          statusDiv.className = 'status ok';
-          statusDiv.textContent = `RESULT: ${aliceBit} AND ${bobBit} = ${result}`;
-          
-          btnEval.disabled = false;
-        }, 1000);
-      }, 1000);
-    }, 1000);
-    
-  } catch(e) {
+    // pa19/demo_and runs the SecureGates.AND protocol once and returns the OT transcript.
+    const res = await Backend.pa19DemoAnd(aliceBit, bobBit);
+
+    logAlice(`I act as the OT sender with messages (m0, m1) = (0, a) = (0, ${aliceBit}).`);
+    await delay(700);
+    logBob(`I act as the OT receiver with choice b = ${bobBit}. I will obtain m_b = a · b.`);
+    await delay(700);
+
+    logSys(`Underlying OT exchange (transcript captured by SecureGates):`);
+    if (Array.isArray(res.transcript)) {
+      res.transcript.forEach(entry => {
+        const keys = Object.keys(entry.payload || {}).join(', ');
+        logSys(`  [${entry.op}] payload keys: {${keys}} — no a/b bits ever cross the wire`);
+      });
+    }
+
+    await delay(500);
+    logBob(`OT delivered m_${bobBit} = ${res.res}.`);
+    logSys(`Output a AND b = ${res.res} (expected ${aliceBit & bobBit}). ${res.res === (aliceBit & bobBit) ? '✓' : '✗'}`);
+
+    statusDiv.style.display = 'block';
+    statusDiv.className = 'status ok';
+    statusDiv.textContent = `RESULT: ${aliceBit} AND ${bobBit} = ${res.res}`;
+  } catch (e) {
     logSys(`Error: ${e.message}`);
+  } finally {
     btnEval.disabled = false;
   }
 });
