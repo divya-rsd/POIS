@@ -159,6 +159,34 @@ def _to_hex(b) -> str:
     return str(b)
 
 
+def _exact_iroot(n: int, k: int) -> tuple:
+    """Return (root, exact) where root = floor(n^(1/k)) and exact iff root**k == n.
+
+    The PA module's `integer_nth_root` seeds Newton with `int(n**(1/k))+1`, which
+    silently loses precision once n exceeds ~2^53. We use a bit-length seed
+    (no float math) and verify, so the demo's cube-root step is reliable on
+    arbitrary-precision integers.
+    """
+    if n < 0:
+        raise ValueError("negative n")
+    if n < 2 or k == 1:
+        return n, True
+    # Bit-length seed: floor(log2 n)/k bits, rounded up.
+    x = 1 << ((n.bit_length() + k - 1) // k)
+    while True:
+        t = x ** (k - 1)
+        y = ((k - 1) * x + n // t) // k
+        if y >= x:
+            break
+        x = y
+    # x is now an upper estimate; correct any off-by-one.
+    while x ** k > n:
+        x -= 1
+    while (x + 1) ** k <= n:
+        x += 1
+    return x, x ** k == n
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PA#1 — OWF + PRG
 # ─────────────────────────────────────────────────────────────────────────────
@@ -548,19 +576,57 @@ async def api_pa13_miller_rabin(req: Request):
         n = int(n_str)
     except ValueError:
         return JSONResponse(status_code=400, content={"error": "Invalid integer format."})
-        
-    trace = []
+
+    raw_trace: list = []
     t0 = time.time()
     from pa13.primality import miller_rabin
-    res = miller_rabin(n, k, trace=trace)
+    res = miller_rabin(n, k, trace=raw_trace)
     elapsed = time.time() - t0
-    
+
+    # The PA module records each round as {a, x, result}. Reshape into the
+    # structured events the demo renders ('factor' once, then per-round entries,
+    # then a final verdict) without touching the PA logic itself.
+    enriched: list = []
+    if n < 2:
+        enriched.append({"event": "composite", "reason": f"n={n} < 2 — not prime by definition"})
+    elif n in (2, 3):
+        enriched.append({"event": "prime"})
+    elif n % 2 == 0:
+        enriched.append({"event": "composite", "reason": f"n={n} is even (divisible by 2)"})
+    else:
+        s, d = 0, n - 1
+        while d % 2 == 0:
+            s += 1
+            d //= 2
+        enriched.append({"event": "factor", "r": s, "d": str(d)})
+
+    for i, item in enumerate(raw_trace, start=1):
+        a = item.get("a")
+        x = item.get("x")
+        rr = item.get("result")
+        enriched.append({
+            "event": "round",
+            "round": i,
+            "a": str(a),
+            "x": str(x),
+            "result": rr,
+        })
+        if rr == "composite":
+            enriched.append({
+                "event": "composite",
+                "reason": f"witness a={a} produced x={x} ≠ n−1 through all squarings",
+            })
+            break
+
+    if res and not any(e.get("event") == "prime" for e in enriched):
+        enriched.append({"event": "prime"})
+
     return {
         "n": n_str,
         "k": k,
         "is_prime": res,
         "time_ms": round(elapsed * 1000, 2),
-        "trace": trace
+        "trace": enriched,
     }
 
 
@@ -597,18 +663,24 @@ async def api_pa14_hastad(req: Request):
         m = int.from_bytes(m_str.encode(), 'big')
         cts = [pow(m, e, r.N) for r in rsas]
         
-    from pa14_15_16.crt_sig_elgamal import crt, integer_nth_root
+    from pa14_15_16.crt_sig_elgamal import crt
     x = crt(cts, mods)
-    recovered_int = integer_nth_root(x, e)
-    try:
-        # Try to decode what we got
-        recovered_str = recovered_int.to_bytes((recovered_int.bit_length() + 7) // 8, 'big').decode('utf-8')
-    except:
-        recovered_str = "GARBAGE (Decryption Failed)"
+    recovered_int, exact = _exact_iroot(x, e)
+    if exact:
+        try:
+            recovered_str = recovered_int.to_bytes(
+                (recovered_int.bit_length() + 7) // 8, 'big'
+            ).decode('utf-8')
+        except Exception:
+            recovered_str = "GARBAGE (decoded bytes are not UTF-8)"
+    else:
+        # Cube root is non-integral — exactly the failure mode the PKCS path
+        # is supposed to exhibit. Surface the floor root for the panel anyway.
+        recovered_str = "GARBAGE (cube root is not an integer)"
 
     return {
-        "m": m_str, 
-        "recovered": recovered_str, 
+        "m": m_str,
+        "recovered": recovered_str,
         "match": recovered_str == m_str,
         "x_hex": _to_hex(x),
         "moduli": [_to_hex(N) for N in mods],

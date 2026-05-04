@@ -52,13 +52,16 @@ btnTest.addEventListener('click', async () => {
         const d = document.createElement('div');
         d.className = 'trace-item';
         if(tr.event === 'factor') {
-          d.innerHTML = `Factor out 2: N-1 = 2^${tr.r} * ${tr.d}`;
+          d.innerHTML = `Factor n−1: <span class="witness">n − 1 = 2<sup>${tr.r}</sup> · ${tr.d}</span>`;
         } else if(tr.event === 'round') {
-          d.innerHTML = `Round ${tr.round}: <span class="witness">a=${tr.a}</span>. x=${tr.x}`;
+          const verdict = tr.result === 'composite'
+            ? '<span class="composite-reason"> → composite witness</span>'
+            : '<span style="color:var(--text3)"> → passed (probably prime so far)</span>';
+          d.innerHTML = `Round ${tr.round}: <span class="witness">a = ${tr.a}</span>, final x = ${tr.x}${verdict}`;
         } else if(tr.event === 'composite') {
-          d.innerHTML = `<span class="composite-reason">Return Composite: ${tr.reason}</span>`;
+          d.innerHTML = `<span class="composite-reason">⊥ Composite — ${tr.reason}</span>`;
         } else if(tr.event === 'prime') {
-          d.innerHTML = `<span class="witness">Return Probably Prime</span>`;
+          d.innerHTML = `<span class="witness">✓ All ${res.k} rounds passed → probably prime (error ≤ 4<sup>−${res.k}</sup>)</span>`;
         } else {
           d.textContent = JSON.stringify(tr);
         }

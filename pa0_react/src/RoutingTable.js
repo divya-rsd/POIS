@@ -1,14 +1,5 @@
 import Backend from './api';
 
-// --- Utility Functions ---
-const hex2bin = (hex) => {
-  let bin = "";
-  for (let i = 0; i < hex.length; i++) {
-    bin += parseInt(hex[i], 16).toString(2).padStart(4, '0');
-  }
-  return bin;
-};
-
 // --- Foundations ---
 // They return the basic primitive objects.
 export const getFoundation = (type) => {
@@ -26,11 +17,19 @@ export const getFoundation = (type) => {
       type: 'DLP',
       name: 'DLP (OWP)',
       owp: async (x) => {
-        const res = await Backend.pa1OwfDlp(x);
-        return res.f_x; 
+        const safeX = (typeof x === 'number') ? x : (parseInt(x, 16) || 1234);
+        const res = await Backend.pa1OwfDlp(safeX);
+        return res.y;
       }
     };
   }
+};
+
+// ASCII string -> hex (for fields that backend will hex-decode).
+const textToHex = (s) => {
+  let out = '';
+  for (let i = 0; i < s.length; i++) out += s.charCodeAt(i).toString(16).padStart(2, '0');
+  return out;
 };
 
 // --- Leg 1: Foundation -> Source Primitive A ---
@@ -53,11 +52,13 @@ export const buildSource = async (foundation, targetA, inputHex) => {
       trace.push({ step: "PRF => PRG", in: inputHex, out: actualOut });
     } else if (targetA === 'MAC') {
       oracle = async (k, m) => {
-        let pad_m = m.padEnd(32, '0').slice(0, 32);
+        // m may be ASCII text or hex; encode text-as-hex, then pad/truncate to 16 bytes (32 hex).
+        const hex = /^[0-9a-fA-F]+$/.test(m) ? m : textToHex(m);
+        const pad_m = hex.padEnd(32, '0').slice(0, 32);
         return await foundation.prp(k, pad_m);
       };
       const actualOut = await oracle(inputHex, "demo_message").catch(e => "Error: " + e.message);
-      trace.push({ step: "PRF => MAC", in: inputHex, out: actualOut });
+      trace.push({ step: "PRF => MAC (Mac_k(m) = AES_k(m))", in: inputHex, out: actualOut });
     } else {
       oracle = async () => "STUB_" + targetA;
       trace.push({ step: `AES -> ${targetA} (Stub)`, in: inputHex, out: "STUB" });
@@ -70,13 +71,15 @@ export const buildSource = async (foundation, targetA, inputHex) => {
       const actualOut = await oracle(safeInp).catch(e => "Error: " + e.message);
       trace.push({ step: "Identity", in: inputHex, out: actualOut });
     } else if (targetA === 'PRG') {
+      // HILL hard-core-bit PRG over DLP. Request 256 bits so GGM (PRG=>PRF) gets a
+      // proper length-doubling output: input 128-bit seed → 256-bit expansion.
       oracle = async (seed) => {
-        let safeSeed = parseInt(seed, 16) || 1234;
-        const res = await Backend.pa1Prg(safeSeed, 16);
+        const safeSeed = (typeof seed === 'number') ? seed : (parseInt(seed, 16) || 1234);
+        const res = await Backend.pa1Prg(safeSeed, 256);
         return res.out;
       };
       const actualOut = await oracle(inputHex).catch(e => "Error: " + e.message);
-      trace.push({ step: "OWP => PRG (HILL)", in: inputHex, out: actualOut });
+      trace.push({ step: "OWP => PRG (HILL hard-core)", in: inputHex, out: actualOut });
     } else if (targetA === 'PRF') {
       oracle = async (k, x) => {
         const res = await Backend.pa2Ggm(k, x);
