@@ -2,7 +2,7 @@
 PA #5 — Message Authentication Codes
 PRF-MAC, CBC-MAC, EUF-CMA game
 """
-import os, sys, hmac as _hmac, secrets
+import os, sys, secrets
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa2.prf_ggm import PRF, AES_PRF
 
@@ -10,14 +10,78 @@ BLOCK = 16
 def _pad(d,bs=BLOCK): n=bs-len(d)%bs; return d+bytes([n]*n)
 def _xor(a,b): return bytes(x^y for x,y in zip(a,b))
 
+
+def _pkcs7_pad_for_length(length, bs=BLOCK):
+    n = bs - (length % bs)
+    return bytes([n] * n)
+
+
+def _toy_md_hash(data, iv=b'\x00' * BLOCK):
+    """Toy Merkle–Damgård hash for PA#5 length-extension demo only."""
+    state = iv
+    padded = data + _pkcs7_pad_for_length(len(data), BLOCK)
+    for i in range(0, len(padded), BLOCK):
+        blk = padded[i:i + BLOCK]
+        state = AES_PRF.evaluate(state, blk)
+    return state
+
+
+def _toy_md_hash_continue(state, extra, prefix_len):
+    """Continue toy hash from an existing state (for length extension)."""
+    total_len = prefix_len + len(extra)
+    padded_extra = extra + _pkcs7_pad_for_length(total_len, BLOCK)
+    cur = state
+    for i in range(0, len(padded_extra), BLOCK):
+        blk = padded_extra[i:i + BLOCK]
+        cur = AES_PRF.evaluate(cur, blk)
+    return cur
+
 class PRF_MAC:
     """PRF-MAC: Mac_k(m) = F_k(m). Fixed-length (one block)."""
-    def __init__(self): self._prf = AES_PRF()
+    def __init__(self):
+        # Use PA#2 PRF interface directly.
+        self._prf = PRF(use_aes=False)
+
     def mac(self, key, msg):
-        m = (_pad(msg))[:BLOCK]
-        return self._prf.evaluate(key, m)
+        # Native PRF-MAC domain is one block. For longer inputs used by
+        # demos/tests, reduce deterministically to one block.
+        block = msg if len(msg) == BLOCK else _toy_md_hash(msg)
+        return self._prf.evaluate(key, block)
+
     def verify(self, key, msg, tag):
-        return secrets.compare_digest(self.mac(key, msg), tag)
+        expected = self.mac(key, msg)
+        return secrets.compare_digest(expected, tag)
+
+    def Mac(self, key, msg):
+        return self.mac(key, msg)
+
+    def Vrfy(self, key, msg, tag):
+        return self.verify(key, msg, tag)
+
+    def run_mac_to_prf_demo(self, n_queries=200):
+        """PA#5 backward demo: MAC-oracle outputs look PRF-like on random inputs."""
+        key = os.urandom(16)
+        mac_outputs = [self.mac(key, os.urandom(BLOCK)) for _ in range(n_queries)]
+        random_outputs = [os.urandom(len(mac_outputs[0])) for _ in range(n_queries)]
+
+        def bit_freq(outputs):
+            bits = []
+            for b in outputs:
+                for byte in b:
+                    for i in range(7, -1, -1):
+                        bits.append((byte >> i) & 1)
+            return sum(bits) / len(bits) if bits else 0.0
+
+        mac_freq = bit_freq(mac_outputs)
+        rnd_freq = bit_freq(random_outputs)
+        diff = abs(mac_freq - rnd_freq)
+        return {
+            'queries': n_queries,
+            'mac_bit_frequency': round(mac_freq, 4),
+            'random_bit_frequency': round(rnd_freq, 4),
+            'difference': round(diff, 4),
+            'prf_like': diff < 0.05,
+        }
 
 class NaiveCBC_MAC:
     """Vulnerable Textbook CBC-MAC for variable-length messages."""
@@ -30,6 +94,12 @@ class NaiveCBC_MAC:
         return state
     def verify(self, key, msg, tag):
         return secrets.compare_digest(self.mac(key, msg), tag)
+
+    def Mac(self, key, msg):
+        return self.mac(key, msg)
+
+    def Vrfy(self, key, msg, tag):
+        return self.verify(key, msg, tag)
 
 class CBC_MAC:
     """Length-prepended CBC-MAC for variable-length messages."""
@@ -44,6 +114,53 @@ class CBC_MAC:
         return state
     def verify(self, key, msg, tag):
         return secrets.compare_digest(self.mac(key, msg), tag)
+
+    def Mac(self, key, msg):
+        return self.mac(key, msg)
+
+    def Vrfy(self, key, msg, tag):
+        return self.verify(key, msg, tag)
+
+
+class NaiveHashMAC:
+    """Deliberately insecure single-hash MAC: tag = H(k || m)."""
+
+    def __init__(self):
+        self._key_len = 16
+
+    def mac(self, key, msg):
+        return _toy_md_hash(key + msg)
+
+    def verify(self, key, msg, tag):
+        return secrets.compare_digest(self.mac(key, msg), tag)
+
+
+class LengthExtensionAttack:
+    """Demonstrates length extension against naive single-hash MAC."""
+
+    def __init__(self, scheme=None):
+        self.scheme = scheme or NaiveHashMAC()
+
+    def run(self):
+        key = os.urandom(16)
+        msg = b"amount=10&to=bob"
+        extra = b"&admin=true"
+
+        tag = self.scheme.mac(key, msg)
+
+        # Attacker knows msg/tag and assumes key length.
+        key_len_guess = 16
+        glue = _pkcs7_pad_for_length(key_len_guess + len(msg), BLOCK)
+        forged_msg = msg + glue + extra
+        prefix_len = key_len_guess + len(msg) + len(glue)
+        forged_tag = _toy_md_hash_continue(tag, extra, prefix_len)
+
+        forged_ok = self.scheme.verify(key, forged_msg, forged_tag)
+        return {
+            'forged': forged_ok,
+            'original_len': len(msg),
+            'forged_len': len(forged_msg),
+        }
 
 class HMAC_stub:
     """Stub — full implementation in PA#10."""
@@ -100,9 +217,13 @@ def demo():
     key = os.urandom(16)
     prf_mac = PRF_MAC(); naive_cbc = NaiveCBC_MAC(); cbc_mac = CBC_MAC()
     msg = b"authenticate me!"
-    t1 = prf_mac.mac(key, msg); t2 = cbc_mac.mac(key, msg)
+    msg16 = b"authenticate me!"
+    t1 = prf_mac.mac(key, msg16); t2 = cbc_mac.mac(key, msg)
     print(f"  PRF-MAC tag:  {t1.hex()}"); print(f"  CBC-MAC tag:  {t2.hex()}")
-    print(f"  PRF-MAC verify: {prf_mac.verify(key, msg, t1)} ✓")
+    print(f"  PRF-MAC verify: {prf_mac.verify(key, msg16, t1)} ✓")
+
+    prf_demo = prf_mac.run_mac_to_prf_demo()
+    print(f"  MAC⇒PRF demo diff: {prf_demo['difference']} (prf_like={prf_demo['prf_like']})")
     
     game1 = EUF_CMA_Game(prf_mac); res1 = game1.run_dummy()
     print(f"  EUF-CMA (PRF-MAC, dummy): forgeries={res1['forgeries']}, secure={res1['secure']} ✓")
@@ -114,6 +235,9 @@ def demo():
     game3 = EUF_CMA_Game(cbc_mac)
     res3 = game3.run_smart_adversary()
     print(f"  EUF-CMA (Secure CBC-MAC, smart): forgeries={res3['forgeries']}, secure={res3['secure']} ✓")
+
+    le = LengthExtensionAttack().run()
+    print(f"  Naive hash-MAC length-extension forged: {le['forged']} (expected True for vulnerable scheme)")
     
     print("✓ PA#5 complete.")
 
