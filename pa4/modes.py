@@ -140,6 +140,7 @@ class Modes:
         self.ctr = CTR()
 
     def encrypt(self, mode, key, msg):
+        mode = mode.upper()
         if mode == 'CBC':
             iv = os.urandom(BLOCK)
             return {'iv': iv, 'ct': self.cbc.encrypt(key, iv, msg), 'mode': 'CBC'}
@@ -152,6 +153,7 @@ class Modes:
         return None
 
     def decrypt(self, mode, key, data):
+        mode = mode.upper()
         if mode == 'CBC':
             return self.cbc.decrypt(key, data['iv'], data['ct'])
         if mode == 'OFB':
@@ -159,6 +161,12 @@ class Modes:
         if mode == 'CTR':
             return self.ctr.decrypt(key, data['r'], data['ct'])
         return None
+
+    def Encrypt(self, mode, key, msg):
+        return self.encrypt(mode, key, msg)
+
+    def Decrypt(self, mode, key, data):
+        return self.decrypt(mode, key, data)
 
 
 def demo():

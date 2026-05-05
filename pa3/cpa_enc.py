@@ -177,6 +177,7 @@ class IND_CPA_Game:
 
     def run_dummy_adversary(self, n_rounds: int = 50) -> dict:
         """Simulate dummy adversary (random guessing) — advantage ≈ 0."""
+        self._oracle_queries = 0
         self._wins = 0
         self._rounds = 0
         # Adversary queries oracle 50 times first
@@ -199,7 +200,9 @@ class IND_CPA_Game:
     def run_nonce_reuse_adversary(self, n_rounds: int = 20) -> dict:
         """Adversary that exploits nonce reuse using ONLY the oracle."""
         # We assume self.scheme is currently set to the Broken variant
-        wins = 0
+        self._oracle_queries = 0
+        self._wins = 0
+        self._rounds = 0
         for _ in range(n_rounds):
             m0 = b"vote:Alice??????"
             m1 = b"vote:Bob????????"
@@ -216,13 +219,12 @@ class IND_CPA_Game:
             else:
                 b_guess = 1
                 
-            if self.guess(b_guess):
-                wins += 1
-                
-        adv = abs(wins / n_rounds - 0.5)
+            self.guess(b_guess)
+
+        adv = self.advantage()
         return {
             'rounds': n_rounds,
-            'wins': wins,
+            'wins': self._wins,
             'advantage': round(adv, 4),
             'secure': adv < 0.1,
             'note': 'Nonce reuse breaks CPA security — adversary queries oracle to find match.'

@@ -377,14 +377,15 @@ class PRG_from_OWF:
     Interface exposed for PA#2:
       - seed(s: int)               — set the seed
       - next_bits(n: int) -> bytes — generate n pseudorandom bits (ceil(n/8) bytes)
-      - generate(seed, length_bits) -> bytes  — convenience wrapper
+            - generate(seed, length_bits) -> bytes  — convenience wrapper
 
     FIX vs original:
       - Uses proper GL hard-core predicate instead of raw LSB of f(x)
       - x_{i+1} = f(x_i) mod q so we stay in the correct group element range
       - The mask r is derived deterministically from the seed for reproducibility
-            - generate(seed, ell_bits) returns n + ell_bits bits, where n is the
-                seed length in bits inferred from the OWF/DLP group size
+                        - generate(seed, ell_bits) returns ell_bits bits by default
+                        - generate(seed, ell_bits, seed_bits=...) can be used by callers
+                            that want a length-doubling style expansion
     """
 
     def __init__(self, owf: OWF_DLP):
@@ -429,14 +430,16 @@ class PRG_from_OWF:
 
     def generate(self, seed: int, ell_bits: int, seed_bits: Optional[int] = None) -> bytes:
         """
-        Main interface: set seed, produce n + ell_bits pseudorandom bits.
+        Main interface: set seed, produce ell_bits pseudorandom bits.
 
-        seed_bits defaults to the OWF subgroup size, which is the natural
-        bit-length of the concrete seed space used by the demo/backend.
+        If `seed_bits` is provided, the total output length becomes
+        `seed_bits + ell_bits`. This keeps backward compatibility for callers
+        that want a length-doubling style expansion.
+
         Returns ceil(length_bits/8) bytes.
         """
         self.seed(seed)
-        total_bits = (seed_bits or self.owf.q.bit_length()) + ell_bits
+        total_bits = ell_bits if seed_bits is None else seed_bits + ell_bits
         return self.next_bits(total_bits)
 
 

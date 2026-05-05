@@ -12,7 +12,7 @@ Implements:
 import os
 import sys
 import secrets
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pa1.owf_prg import AES128, PRG_from_OWF, OWF_DLP, StatisticalTests
@@ -25,16 +25,26 @@ from pa1.owf_prg import AES128, PRG_from_OWF, OWF_DLP, StatisticalTests
 class LengthDoublingPRG:
     """Wraps any seed-expansion function to provide G0/G1 split."""
 
-    def __init__(self, block_bytes: int = 4):
+    def __init__(self, block_bytes: int = 4, forward_prg: Optional[PRG_from_OWF] = None):
         self.block_bytes = block_bytes
+        # Use PA#1 PRG (PRG_from_OWF) as the default expansion primitive.
+        # Instantiate a lightweight OWF/DLP-backed PRG if none supplied.
+        self._forward_prg = forward_prg or PRG_from_OWF(OWF_DLP(prime_bits=64))
 
     def _expand(self, seed_bytes: bytes) -> bytes:
-        """Expand seed to 2x length using AES in counter mode."""
-        # Use AES to expand — pad/hash seed to 16 bytes
-        key = (seed_bytes * 3)[:16]
-        block0 = AES128.encrypt_block(key, b'\x00' * 16)
-        block1 = AES128.encrypt_block(key, b'\x01' + b'\x00' * 15)
-        return block0 + block1  # 32 bytes total
+        """Expand seed to 2x length using the PA#1 PRG.
+
+        We interpret `seed_bytes` as a big-endian integer seed s and call
+        PRG_from_OWF.generate(s, ell_bits) with a 128-bit seed space so that
+        the PRG produces 256 total bits (32 bytes), matching the existing
+        GGM test/visualization contract.
+        """
+        seed_bytes = seed_bytes.rjust(16, b'\x00')[:16]
+        seed_bits = 128
+        seed_int = int.from_bytes(seed_bytes, 'big')
+        # Request a 256-bit expansion directly from PA#1.
+        prg_out = self._forward_prg.generate(seed_int, seed_bits * 2)
+        return prg_out
 
     def G0(self, seed: bytes) -> bytes:
         """Left half of G(seed)."""
@@ -65,11 +75,17 @@ class GGM_PRF:
     def __init__(self, prg: Optional[LengthDoublingPRG] = None):
         self.prg = prg or LengthDoublingPRG()
 
-    def _bits(self, x: int, n: int) -> list:
-        """Convert integer x to n-bit list (MSB first)."""
-        return [(x >> (n - 1 - i)) & 1 for i in range(n)]
+    def _bits(self, x: Union[int, bytes], n_bits: int) -> list:
+        """Convert an integer or byte string into a bit list (MSB first)."""
+        if isinstance(x, bytes):
+            bits = []
+            for byte in x:
+                for i in range(7, -1, -1):
+                    bits.append((byte >> i) & 1)
+            return bits
+        return [(x >> (n_bits - 1 - i)) & 1 for i in range(n_bits)]
 
-    def evaluate(self, key: bytes, x: int, n_bits: int = 8) -> bytes:
+    def evaluate(self, key: bytes, x: Union[int, bytes], n_bits: int = 8) -> bytes:
         """
         Evaluate PRF: Fk(x).
         key: n-byte seed
@@ -79,21 +95,18 @@ class GGM_PRF:
         state = key
         for bit in bits:
             state = self.prg.G0(state) if bit == 0 else self.prg.G1(state)
-            # Truncate to consistent size
-            state = state[:max(len(key), 4)]
         return state
 
-    def __call__(self, key: bytes, x: int, n_bits: int = 8) -> bytes:
+    def __call__(self, key: bytes, x: Union[int, bytes], n_bits: int = 8) -> bytes:
         return self.evaluate(key, x, n_bits)
 
-    def get_path(self, key: bytes, x: int, n_bits: int = 8) -> list:
+    def get_path(self, key: bytes, x: Union[int, bytes], n_bits: int = 8) -> list:
         """Return full root-to-leaf path (for visualization)."""
         bits = self._bits(x, n_bits)
         path = [{'level': 0, 'bit': None, 'value': key.hex(), 'node': 'root'}]
         state = key
         for i, bit in enumerate(bits):
             state = self.prg.G0(state) if bit == 0 else self.prg.G1(state)
-            state = state[:max(len(key), 4)]
             path.append({
                 'level': i + 1,
                 'bit': bit,
@@ -116,7 +129,7 @@ class AES_PRF:
     @staticmethod
     def evaluate(key: bytes, x: bytes) -> bytes:
         """Fk(x) = AES_k(x). key and x must be 16 bytes."""
-        k = (key * 2)[:16]
+        k = key.ljust(16, b'\x00')[:16]
         blk = (x + b'\x00' * 16)[:16]
         return AES128.encrypt_block(k, blk)
 
@@ -141,14 +154,23 @@ class PRG_from_PRF:
         self.n_bits = n_bits
 
     def generate(self, seed: bytes, output_bytes: int = 8) -> bytes:
-        """Produce pseudorandom output from seed using PRF."""
-        out = bytearray()
-        ctr = 0
-        while len(out) < output_bytes:
-            block = self.prf.evaluate(seed, ctr, self.n_bits)
-            out.extend(block)
-            ctr += 1
-        return bytes(out[:output_bytes])
+        """Produce pseudorandom output using counter-based PRF expansion.
+
+        The first block follows the assignment-style length-doubling shape
+        Fs(0^n) || Fs(1^n); additional blocks are produced with fresh
+        counters to avoid periodic repetition.
+        """
+        if output_bytes <= 0:
+            return b''
+
+        zero = 0
+        ones = (1 << self.n_bits) - 1
+        blocks = [self.prf.evaluate(seed, zero, self.n_bits), self.prf.evaluate(seed, ones, self.n_bits)]
+        counter = 2
+        while sum(len(block) for block in blocks) < output_bytes:
+            blocks.append(self.prf.evaluate(seed, counter, self.n_bits))
+            counter += 1
+        return b''.join(blocks)[:output_bytes]
 
     def statistical_test(self, seed: bytes, n_bytes: int = 256) -> list:
         """Run same statistical tests as PA#1."""
@@ -170,6 +192,7 @@ class PRFDistinguishingGame:
         self.prf = prf
         self.key = key
         self.n_bits = n_bits
+        self._block_len = len(self.prf.evaluate(self.key, 0, self.n_bits))
         # Build a "truly random" oracle
         self._random_oracle: dict = {}
 
@@ -178,7 +201,7 @@ class PRFDistinguishingGame:
 
     def query_random(self, x: int) -> bytes:
         if x not in self._random_oracle:
-            self._random_oracle[x] = os.urandom(4)
+            self._random_oracle[x] = os.urandom(self._block_len)
         return self._random_oracle[x]
 
     def run_experiment(self, n_queries: int = 100) -> dict:
@@ -230,10 +253,8 @@ class PRF:
         """Fk(x) — main interface."""
         if self.use_aes:
             return self._aes.evaluate(key, x)
-        # GGM: convert x bytes to int
-        x_int = int.from_bytes(x[:1], 'big')
         k_bytes = (key + b'\x00' * 16)[:16]
-        return self._ggm.evaluate(k_bytes, x_int, 8)
+        return self._ggm.evaluate(k_bytes, x)
 
     def __call__(self, key: bytes, x: bytes) -> bytes:
         return self.evaluate(key, x)
