@@ -264,6 +264,16 @@ async def api_pa3_enc(req: Request):
     return {"k": _to_hex(k), "r": _to_hex(r), "ct": _to_hex(ct)}
 
 
+@app.post("/api/pa3/decrypt")
+async def api_pa3_dec(req: Request):
+    data = await safe_json(req)
+    k = _hex_to_bytes(data.get("k", ""), 16)
+    r = bytes.fromhex(data.get("r", ""))
+    ct = bytes.fromhex(data.get("ct", ""))
+    pt = _CPA.decrypt(k, r, ct)
+    return {"pt": pt.decode("latin1", errors="replace")}
+
+
 @app.post("/api/pa3/game")
 async def api_pa3_game(req: Request):
     data = await safe_json(req)

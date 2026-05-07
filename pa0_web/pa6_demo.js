@@ -5,117 +5,264 @@ const ccaCtBox = document.getElementById('cca-ct');
 const ccaDecBox = document.getElementById('cca-dec');
 const ccaStatus = document.getElementById('cca-status');
 
-const k = "00112233445566778899aabbccddeeff"; // single key for CPA
-const ke = "00112233445566778899aabbccddeeff"; // encryption key for CCA
-const km = "ffeeddccbbaa99887766554433221100"; // MAC key for CCA
+const k = '00112233445566778899aabbccddeeff';
+const ke = '00112233445566778899aabbccddeeff';
+const km = 'ffeeddccbbaa99887766554433221100';
 
-let currentCpaR = null;
-let currentCpaCt = null;
+let baseCpaR = '';
+let baseCpaCt = '';
+let baseCcaBlob = '';
+let baseCcaTag = '';
 
-let currentCcaBlob = null;
-let currentCcaTag = null;
+let selectedBitIndex = null;
+
+function ensureBitToolStyles() {
+  if (document.getElementById('pa6-bit-style')) return;
+  const style = document.createElement('style');
+  style.id = 'pa6-bit-style';
+  style.textContent = `
+    .bit-tool { display:flex; flex-direction:column; gap:6px; }
+    .bit-meta { font-size:10px; color:var(--text3); font-family:var(--mono); }
+    .bit-grid { font-family:var(--mono); font-size:10px; line-height:1.8; user-select:none; }
+    .bit-cell {
+      display:inline-block;
+      min-width:10px;
+      text-align:center;
+      border-radius:4px;
+      margin:1px;
+      padding:0 1px;
+      cursor:pointer;
+      color:var(--text2);
+      transition:all .12s ease;
+    }
+    .bit-cell:hover { background:var(--surface2); color:var(--accent); }
+    .bit-cell.active { background:rgba(251,191,36,.2); color:var(--amber); border:1px solid rgba(251,191,36,.5); }
+    .bit-sep { color:var(--text3); margin:0 2px; }
+    .bit-actions { display:flex; gap:6px; }
+    .btn-mini {
+      padding:4px 8px;
+      font-size:10px;
+      border:1px dashed var(--text3);
+      color:var(--text3);
+      background:transparent;
+      border-radius:var(--r);
+      cursor:pointer;
+    }
+    .btn-mini:hover { border-color:var(--accent); color:var(--accent); background:var(--surface2); }
+  `;
+  document.head.appendChild(style);
+}
+
+function hexToBits(hex) {
+  const clean = (hex || '').trim();
+  const bits = [];
+  for (let i = 0; i < clean.length; i += 1) {
+    const nibble = Number.parseInt(clean[i], 16);
+    const val = Number.isNaN(nibble) ? 0 : nibble;
+    bits.push(((val >> 3) & 1).toString());
+    bits.push(((val >> 2) & 1).toString());
+    bits.push(((val >> 1) & 1).toString());
+    bits.push((val & 1).toString());
+  }
+  return bits;
+}
+
+function bitsToHex(bits) {
+  if (!bits.length) return '';
+  let out = '';
+  for (let i = 0; i < bits.length; i += 4) {
+    const nibble =
+      ((bits[i] === '1' ? 1 : 0) << 3)
+      | ((bits[i + 1] === '1' ? 1 : 0) << 2)
+      | ((bits[i + 2] === '1' ? 1 : 0) << 1)
+      | (bits[i + 3] === '1' ? 1 : 0);
+    out += nibble.toString(16);
+  }
+  return out;
+}
+
+function flipBitInHex(hex, bitIndex) {
+  const bits = hexToBits(hex);
+  if (bitIndex == null || bitIndex < 0 || bitIndex >= bits.length) {
+    return hex;
+  }
+  bits[bitIndex] = bits[bitIndex] === '1' ? '0' : '1';
+  return bitsToHex(bits);
+}
+
+function getMutatedCpa() {
+  const full = `${baseCpaR}${baseCpaCt}`;
+  return flipBitInHex(full, selectedBitIndex);
+}
+
+function getMutatedCcaBlob() {
+  return flipBitInHex(baseCcaBlob, selectedBitIndex);
+}
+
+function splitCpaFull(fullHex) {
+  const rHexLen = baseCpaR.length;
+  return {
+    r: fullHex.slice(0, rHexLen),
+    ct: fullHex.slice(rHexLen),
+  };
+}
+
+function renderBitTool(container, hex, title) {
+  const bits = hexToBits(hex);
+  const selectedLabel = selectedBitIndex == null ? 'none' : selectedBitIndex;
+
+  container.innerHTML = '';
+
+  const root = document.createElement('div');
+  root.className = 'bit-tool';
+
+  const meta = document.createElement('div');
+  meta.className = 'bit-meta';
+  meta.textContent = `${title} | bits: ${bits.length} | selected: ${selectedLabel}`;
+  root.appendChild(meta);
+
+  const grid = document.createElement('div');
+  grid.className = 'bit-grid';
+
+  bits.forEach((bit, idx) => {
+    const span = document.createElement('span');
+    span.className = `bit-cell${selectedBitIndex === idx ? ' active' : ''}`;
+    span.textContent = bit;
+    span.title = `Bit ${idx}`;
+    span.addEventListener('click', () => {
+      selectedBitIndex = selectedBitIndex === idx ? null : idx;
+      void updateLivePanels();
+    });
+    grid.appendChild(span);
+
+    if ((idx + 1) % 8 === 0 && idx !== bits.length - 1) {
+      const sep = document.createElement('span');
+      sep.className = 'bit-sep';
+      sep.textContent = ' ';
+      grid.appendChild(sep);
+    }
+  });
+
+  root.appendChild(grid);
+
+  const actions = document.createElement('div');
+  actions.className = 'bit-actions';
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'btn-mini';
+  clearBtn.type = 'button';
+  clearBtn.textContent = 'Clear Flip';
+  clearBtn.addEventListener('click', () => {
+    selectedBitIndex = null;
+    void updateLivePanels();
+  });
+
+  actions.appendChild(clearBtn);
+  root.appendChild(actions);
+
+  container.appendChild(root);
+}
+
+async function decryptCpaLive() {
+  if (!baseCpaR || !baseCpaCt) {
+    cpaDecBox.value = '';
+    return;
+  }
+
+  try {
+    const fullMut = getMutatedCpa();
+    const { r, ct } = splitCpaFull(fullMut);
+    const res = await Backend.pa3Decrypt(k, r, ct);
+    cpaDecBox.value = res.pt ?? '';
+  } catch (e) {
+    cpaDecBox.value = `Error: ${e.message}`;
+  }
+}
+
+async function decryptCcaLive() {
+  if (!baseCcaBlob || !baseCcaTag) {
+    ccaDecBox.value = '';
+    ccaStatus.style.display = 'none';
+    return;
+  }
+
+  try {
+    const blob = getMutatedCcaBlob();
+    const res = await Backend.pa6Decrypt(ke, km, blob, baseCcaTag);
+
+    ccaStatus.style.display = 'block';
+    if (res.rejected) {
+      ccaStatus.className = 'status err';
+      ccaStatus.textContent = '⊥ REJECTED: Invalid MAC Tag';
+      ccaDecBox.value = '---';
+    } else {
+      ccaStatus.className = 'status ok';
+      ccaStatus.textContent = 'VERIFIED & DECRYPTED';
+      ccaDecBox.value = res.pt ?? '';
+    }
+  } catch (e) {
+    ccaStatus.style.display = 'block';
+    ccaStatus.className = 'status err';
+    ccaStatus.textContent = `⊥ REJECTED: ${e.message}`;
+    ccaDecBox.value = '---';
+  }
+}
+
+async function updateLivePanels() {
+  if (!baseCpaR || !baseCpaCt || !baseCcaBlob) return;
+
+  const cpaFull = getMutatedCpa();
+  const ccaBlob = getMutatedCcaBlob();
+
+  renderBitTool(cpaCtBox, cpaFull, 'CPA ciphertext C = <r, ct>');
+  renderBitTool(ccaCtBox, ccaBlob, 'CCA ciphertext blob');
+
+  await Promise.all([decryptCpaLive(), decryptCcaLive()]);
+}
 
 document.getElementById('btn-enc').addEventListener('click', async () => {
   const m = msgInp.value;
-  if(!m) return;
-  
+  if (!m) return;
+
   cpaDecBox.value = '';
   ccaDecBox.value = '';
   ccaStatus.style.display = 'none';
 
   try {
-    // 1. CPA Encrypt
     const resCpa = await Backend.pa3Encrypt(k, m);
-    currentCpaR = resCpa.r;
-    currentCpaCt = resCpa.ct;
-    cpaCtBox.textContent = currentCpaCt;
+    baseCpaR = resCpa.r;
+    baseCpaCt = resCpa.ct;
 
-    // 2. CCA Encrypt
     const resCca = await Backend.pa6Encrypt(ke, km, m);
-    currentCcaBlob = resCca.blob;
-    currentCcaTag = resCca.tag;
-    ccaCtBox.textContent = `Blob: ${currentCcaBlob}\nTag:  ${currentCcaTag}`;
+    baseCcaBlob = resCca.blob;
+    baseCcaTag = resCca.tag;
 
-  } catch(e) {
-    alert("Encryption failed: " + e.message);
+    selectedBitIndex = null;
+    await updateLivePanels();
+  } catch (e) {
+    alert(`Encryption failed: ${e.message}`);
   }
 });
 
-// Flip a bit helper
-function flipHexBit(hex) {
-  if(!hex) return hex;
-  let lastChar = hex[hex.length-1];
-  let val = parseInt(lastChar, 16);
-  val = val ^ 1; // flip lowest bit
-  return hex.substring(0, hex.length-1) + val.toString(16);
-}
-
-document.getElementById('btn-flip-cpa').addEventListener('click', () => {
-  if(!currentCpaCt) return;
-  currentCpaCt = flipHexBit(currentCpaCt);
-  cpaCtBox.textContent = currentCpaCt;
+// Keep old controls working, but route them into the new live bit tool.
+document.getElementById('btn-flip-cpa').addEventListener('click', async () => {
+  if (!baseCpaR || !baseCpaCt) return;
+  selectedBitIndex = selectedBitIndex == null ? 0 : selectedBitIndex;
+  await updateLivePanels();
 });
 
-document.getElementById('btn-flip-cca').addEventListener('click', () => {
-  if(!currentCcaBlob) return;
-  currentCcaBlob = flipHexBit(currentCcaBlob);
-  ccaCtBox.textContent = `Blob: ${currentCcaBlob}\nTag:  ${currentCcaTag}`;
+document.getElementById('btn-flip-cca').addEventListener('click', async () => {
+  if (!baseCcaBlob) return;
+  selectedBitIndex = selectedBitIndex == null ? 0 : selectedBitIndex;
+  await updateLivePanels();
 });
 
-// Decrypt CPA
 document.getElementById('btn-dec-cpa').addEventListener('click', async () => {
-  if(!currentCpaCt) return;
-  try {
-    // We don't have a direct pa3Decrypt endpoint in PA0 but we do have pa4Decrypt with CTR mode.
-    // Wait, let's just use CPA-Enc's decryption if we had it, or we can use PA4's CTR decrypt
-    // Because CPA-Enc in minicrypt is GGM-based pseudo-OTP. It's essentially r || (F_k(r) ^ m)
-    // Actually, I can just do a hack since I don't have a direct CPA decrypt endpoint: I will send it to PA4 CTR? 
-    // Wait, PA3 CPA encryption does `r, ct`.
-    // Let me check if I added a CPA decrypt endpoint in backend.py. I didn't add CPA decrypt.
-    // That's fine, let's just show it manually or request the backend to add it.
-    // Wait, I can do it client-side if I have PRF, or I can just use pa4 modes to simulate the flip.
-    // Since CPA encryption in PA3 returns `r` and `ct` where `ct` is XORed with pad.
-    // If we just flip a bit in `ct` and decrypt, it will flip the corresponding bit in plaintext.
-    
-    // Actually, let's ask the backend for `pa2_ggm` to get the pad for `r` and XOR it with `currentCpaCt` manually in JS!
-    const resGgm = await Backend.pa2Ggm(k, currentCpaR);
-    const padHex = resGgm.out; // wait, r might be 16 bytes.
-    // Let's just do a dummy flip on the original message if it's too hard to decrypt client-side.
-    // Wait! Let's just get the original message and flip the last bit of the last character.
-    let decM = msgInp.value;
-    let flipped = currentCpaCt !== cpaCtBox.textContent; // track if flipped
-    // actually currentCpaCt IS the modified one.
-    // Let's just do: if the last char of currentCpaCt is different from the original, we corrupt the last char of the plaintext.
-    
-    // A better way: I didn't make a decrypt endpoint for PA3. I'll just fake the decryption for CPA to show the malleability.
-    let ptChars = decM.split('');
-    let lastCharCode = ptChars[ptChars.length-1].charCodeAt(0);
-    lastCharCode = lastCharCode ^ 1; // flip bit
-    ptChars[ptChars.length-1] = String.fromCharCode(lastCharCode);
-    cpaDecBox.value = ptChars.join('');
-    
-  } catch(e) {
-    cpaDecBox.value = "Error: " + e.message;
-  }
+  await decryptCpaLive();
 });
 
-// Decrypt CCA
 document.getElementById('btn-dec-cca').addEventListener('click', async () => {
-  if(!currentCcaBlob) return;
-  try {
-    const res = await Backend.pa6Decrypt(ke, km, currentCcaBlob, currentCcaTag);
-    ccaStatus.style.display = 'block';
-    
-    if (res.rejected) {
-      ccaStatus.className = 'status err';
-      ccaStatus.textContent = 'REJECTED: Invalid MAC Tag';
-      ccaDecBox.value = '---';
-    } else {
-      ccaStatus.className = 'status ok';
-      ccaStatus.textContent = 'VERIFIED & DECRYPTED';
-      ccaDecBox.value = res.pt;
-    }
-  } catch(e) {
-    ccaDecBox.value = "Error: " + e.message;
-  }
+  await decryptCcaLive();
 });
+
+ensureBitToolStyles();

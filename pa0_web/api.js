@@ -44,6 +44,7 @@ const Backend = {
   pa2Ggm: (key, bits) => Backend.post('pa2/ggm', { key, bits }),
   pa2AesPrf: (k, x) => Backend.post('pa2/aes_prf', { k, x }),
   pa3Encrypt: (k, m) => Backend.post('pa3/encrypt', { k, m }),
+  pa3Decrypt: (k, r, ct) => Backend.post('pa3/decrypt', { k, r, ct }),
   pa3Game: (k, m0, m1, reuse_nonce) => Backend.post('pa3/game', { k, m0, m1, reuse_nonce }),
   pa4Modes: (mode, k, m, iv) => Backend.post('pa4/modes', { mode, k, m, iv }),
   pa4Decrypt: (mode, k, ct, iv) => Backend.post('pa4/decrypt', { mode, k, ct, iv }),
